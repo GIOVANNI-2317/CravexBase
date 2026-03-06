@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+      <Extensions>cpp;c;cc;cxx;c++;cppm;ixx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
+    </Filter>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
+      <Extensions>h;hh;hpp;hxx;h++;hm;inl;inc;ipp;xsd</Extensions>
+    </Filter>
+    <Filter Include="Resource Files">
+      <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
+      <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
+    </Filter>
+    <Filter Include="core">
+      <UniqueIdentifier>{81b4b9b9-1234-4321-abcd-123456789abc}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="env">
+      <UniqueIdentifier>{92c5c9c9-2345-5432-bcde-234567890bcd}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="env\libs">
+      <UniqueIdentifier>{a3d6dad0-3456-6543-cdef-345678901cde}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="External Dependencies">
+      <UniqueIdentifier>{b4e7ebe1-4567-7654-def0-456789012def}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="External Dependencies\Luau">
+      <UniqueIdentifier>{c5f8fcf2-5678-8765-ef01-567890123ef0}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="External Dependencies\blake3">
+      <UniqueIdentifier>{d6090dd3-6789-9876-f012-678901234f01}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="main.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="deps\Luau\Ast.cpp">
+      <Filter>External Dependencies\Luau</Filter>
+    </ClCompile>
+    <ClCompile Include="deps\Luau\BuiltinFolding.cpp">
+      <Filter>External Dependencies\Luau</Filter>
+    </ClCompile>
+    <ClCompile Include="deps\Luau\Builtins.cpp">
+      <Filter>External Dependencies\Luau</Filter>
+    </ClCompile>
+    <ClCompile Include="deps\Luau\BytecodeBuilder.cpp">
+      <Filter>External Dependencies\Luau</Filter>
+    </ClCompile>
+    <ClCompile Include="deps\Luau\Compiler.cpp">
+      <Filter>External Dependencies\Luau</Filter>
+    </ClCompile>
+    <ClCompile Include="deps\Luau\Confusables.cpp">
+      <Filter>External Dependencies\Luau</Filter>
+    </ClCompile>
+    <ClCompile Include="deps\Luau\ConstantFolding.cpp">
+      <Filter>External Dependencies\Luau</Filter>
+    </ClCompile>
+    <ClCompile Include="deps\Luau\CostModel.cpp">
+      <Filter>External Dependencies\Luau</Filter>
+    </ClCompile>
+    <ClCompile Include="deps\Luau\lcode.cpp">
+      <Filter>External Dependencies\Luau</Filter>
+    </ClCompile>
+    <ClCompile Include="deps\Luau\Lexer.cpp">
+      <Filter>External Dependencies\Luau</Filter>
+    </ClCompile>
+    <ClCompile Include="deps\Luau\Location.cpp">
+      <Filter>External Dependencies\Luau</Filter>
+    </ClCompile>
+    <ClCompile Include="deps\Luau\Parser.cpp">
+      <Filter>External Dependencies\Luau</Filter>
+    </ClCompile>
+    <ClCompile Include="deps\Luau\StringUtils.cpp">
+      <Filter>External Dependencies\Luau</Filter>
+    </ClCompile>
+    <ClCompile Include="deps\Luau\TableShape.cpp">
+      <Filter>External Dependencies\Luau</Filter>
+    </ClCompile>
+    <ClCompile Include="deps\Luau\Types.cpp">
+      <Filter>External Dependencies\Luau</Filter>
+    </ClCompile>
+    <ClCompile Include="deps\Luau\ValueTracking.cpp">
+      <Filter>External Dependencies\Luau</Filter>
+    </ClCompile>
+    <ClCompile Include="deps\blake3\blake3.c">
+      <Filter>External Dependencies\blake3</Filter>
+    </ClCompile>
+    <ClCompile Include="deps\blake3\blake3_dispatch.c">
+      <Filter>External Dependencies\blake3</Filter>
+    </ClCompile>
+    <ClCompile Include="deps\blake3\blake3_portable.c">
+      <Filter>External Dependencies\blake3</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="env\bridge.hpp">
+      <Filter>env</Filter>
+    </ClInclude>
+    <ClInclude Include="env\env.hpp">
+      <Filter>env</Filter>
+    </ClInclude>
+    <ClInclude Include="env\libs\misc.hpp">
+      <Filter>env\libs</Filter>
+    </ClInclude>
+    <ClInclude Include="env\libs\cache.hpp">
+      <Filter>env\libs</Filter>
+    </ClInclude>
+    <ClInclude Include="env\libs\closure.hpp">
+      <Filter>env\libs</Filter>
+    </ClInclude>
+    <ClInclude Include="env\libs\crypt.hpp">
+      <Filter>env\libs</Filter>
+    </ClInclude>
+    <ClInclude Include="env\libs\debug.hpp">
+      <Filter>env\libs</Filter>
+    </ClInclude>
+    <ClInclude Include="env\libs\drawing.hpp">
+      <Filter>env\libs</Filter>
+    </ClInclude>
+    <ClInclude Include="env\libs\files.hpp">
+      <Filter>env\libs</Filter>
+    </ClInclude>
+    <ClInclude Include="env\libs\input.hpp">
+      <Filter>env\libs</Filter>
+    </ClInclude>
+    <ClInclude Include="env\libs\instances.hpp">
+      <Filter>env\libs</Filter>
+    </ClInclude>
+    <ClInclude Include="env\libs\metatable.hpp">
+      <Filter>env\libs</Filter>
+    </ClInclude>
+    <ClInclude Include="env\libs\network.hpp">
+      <Filter>env\libs</Filter>
+    </ClInclude>
+    <ClInclude Include="env\libs\scripts.hpp">
+      <Filter>env\libs</Filter>
+    </ClInclude>
+    <ClInclude Include="env\libs\utils.hpp">
+      <Filter>env\libs</Filter>
+    </ClInclude>
+    <ClInclude Include="offs.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="core\sys.hpp">
+      <Filter>core</Filter>
+    </ClInclude>
+    <ClInclude Include="core\inst.hpp">
+      <Filter>core</Filter>
+    </ClInclude>
+    <ClInclude Include="core\code.hpp">
+      <Filter>core</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="res.rc">
+      <Filter>Resource Files</Filter>
+    </ResourceCompile>
+  </ItemGroup>
+</Project>
