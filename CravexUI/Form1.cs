@@ -19,6 +19,8 @@ namespace CravexUI
         [DllImport("Cravex.dll", CharSet = CharSet.Unicode, CallingConvention = CallingConvention.Cdecl)]
         public static extern void detach();
 
+        public static bool debugEnabled  = false;
+
         public Form1()
         {
             InitializeComponent();
@@ -26,7 +28,7 @@ namespace CravexUI
 
         private void btnAttach_Click(object sender, EventArgs e)
         {
-            attach(false);
+            attach(debugEnabled);
         }
 
         private void btnExecute_Click(object sender, EventArgs e)
@@ -75,6 +77,19 @@ namespace CravexUI
             if (isAttached())
             {
                 detach();
+            }
+        }
+
+        private void btnDebug_Click(object sender, EventArgs e)
+        {
+            debugEnabled = !debugEnabled;
+            if (debugEnabled == true)
+            {
+                btnDebug.ForeColor = System.Drawing.Color.Green;
+            }
+            else
+            {
+                btnDebug.ForeColor = System.Drawing.Color.Red;
             }
         }
     }

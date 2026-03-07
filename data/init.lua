@@ -165,7 +165,7 @@ env.HttpGet = function(url)
 end
 env.HttpPost = function(url, body) return env.request({Url = url, Method = "POST", Body = body}) end
 
--- Filesystem API
+-- Filesystem api
 env.readfile = function(path) return bridgeReq("readfile", "", {f = path}) end
 env.writefile = function(path, data) bridgeReq("writefile", data, {f = path}) end
 env.appendfile = function(path, data) bridgeReq("appendfile", data, {f = path}) end

@@ -4,6 +4,9 @@
 #include <iostream>
 #include <set>
 
+static std::set<DWORD> attachedPids;
+static bool shouldAttach = true;
+
 std::string getResource(int id, DWORD pid) {
     HMODULE h = NULL;
     GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
@@ -21,65 +24,6 @@ std::string getResource(int id, DWORD pid) {
     return s;
 }
 
-void attachThread(DWORD pid, uintptr_t base, std::vector<char> bc, size_t sz) {
-    inst dm(0, pid);
-    while (true) {
-        dm = getDm(base, pid);
-        if (dm.getName() == "Ugc") break;
-        Sleep(250);
-    }
-    inst cg = dm.findChild("CoreGui");
-    inst rg = cg.findChild("RobloxGui");
-    inst ms = rg.findChild("Modules");
-    inst im = ms.findChild("AvatarEditorPrompts");
-
-    mem::write<BYTE>(base + offs::loadModule, 1, pid);
-    auto rev = im.setCode(bc, sz);
-    cg.waitChild("CravexBase");
-    rev();
-}
-
-void ugcAttachThread(DWORD pid, uintptr_t base, std::vector<char> bc, size_t sz) {
-    inst dm = getDm(base, pid);
-    inst cg = dm.findChild("CoreGui");
-    inst rg = cg.findChild("RobloxGui");
-    inst ms = rg.findChild("Modules");
-    inst pl = ms.findChild("PlayerList");
-    inst plm = pl.findChild("PlayerListManager");
-
-    inst cp = dm.findChild("CorePackages");
-    inst pk = cp.findChild("Packages");
-    inst idx = pk.findChild("_Index");
-    inst cm1 = idx.findChild("CollisionMatchers2D");
-    inst cm2 = cm1.findChild("CollisionMatchers2D");
-    inst jst = cm2.findChild("Jest");
-
-    mem::write<BYTE>(base + offs::loadModule, 1, pid);
-    mem::write<uintptr_t>(plm.getAddr() + 0x8, jst.getAddr(), pid);
-
-    auto rev = jst.setCode(bc, sz);
-    HWND hw = proc::getHwnd(pid);
-    HWND old = GetForegroundWindow();
-    while (GetForegroundWindow() != hw) {
-        SetForegroundWindow(hw);
-        Sleep(1);
-    }
-    keybd_event(VK_ESCAPE, MapVirtualKey(VK_ESCAPE, 0), KEYEVENTF_SCANCODE, 0);
-    keybd_event(VK_ESCAPE, MapVirtualKey(VK_ESCAPE, 0), KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP, 0);
-
-    cg.waitChild("CravexBase");
-
-    keybd_event(VK_ESCAPE, MapVirtualKey(VK_ESCAPE, 0), KEYEVENTF_SCANCODE, 0);
-    keybd_event(VK_ESCAPE, MapVirtualKey(VK_ESCAPE, 0), KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP, 0);
-
-    SetForegroundWindow(old);
-    mem::write<uintptr_t>(plm.getAddr() + 0x8, plm.getAddr(), pid);
-    rev();
-}
-
-static std::set<DWORD> attachedPids;
-static bool shouldAttach = true;
-
 void mainLogic() {
     std::thread(startBridge).detach();
     while (true) {
@@ -96,13 +40,17 @@ void mainLogic() {
             std::string l = getResource(1, pid);
             auto bc = code::sign(code::compile(l), sz);
 
-            if (dm.getName() == "Ugc") {
+            attachedPids.insert(pid);
+			std::thread(tpHandler::handlerStart, pid, base, bc, sz).detach();
+
+            /*if (dm.getName() == "Ugc") {
                 attachedPids.insert(pid);
-                std::thread(ugcAttachThread, pid, base, bc, sz).detach();
-            } else {
-                attachedPids.insert(pid);
-                std::thread(attachThread, pid, base, bc, sz).detach();
+                std::thread(tpHandler::ugcAttachThread, pid, base, bc, sz).detach();
             }
+            else {
+                attachedPids.insert(pid);
+                std::thread(tpHandler::attachThread, pid, base, bc, sz).detach();
+            }*/
         }
         Sleep(1000);
     }

@@ -97,6 +97,7 @@
     <ClCompile Include="deps/blake3/blake3_portable.c" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="core\globals.hpp" />
     <ClInclude Include="env\bridge.hpp" />
     <ClInclude Include="env\env.hpp" />
     <ClInclude Include="env\libs\misc.hpp" />
@@ -112,6 +113,7 @@
     <ClInclude Include="env\libs\network.hpp" />
     <ClInclude Include="env\libs\scripts.hpp" />
     <ClInclude Include="env\libs\utils.hpp" />
+    <ClInclude Include="env\libs\websockets.hpp" />
     <ClInclude Include="offs.hpp" />
     <ClInclude Include="core\sys.hpp" />
     <ClInclude Include="core\inst.hpp" />

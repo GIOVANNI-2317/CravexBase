@@ -8,7 +8,8 @@ namespace crypt {
     inline std::string handleBase64Decode(const std::string& data, const json& settings, DWORD pid) {
         try {
             return base64::from_base64(data);
-        } catch (...) {
+        }
+        catch (...) {
             return "";
         }
     }

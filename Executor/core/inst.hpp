@@ -78,7 +78,7 @@ public:
             HANDLE h = OpenProcess(PROCESS_ALL_ACCESS, FALSE, pid);
             VirtualFreeEx(h, nMem, 0, MEM_RELEASE);
             CloseHandle(h);
-        };
+            };
     }
 };
 

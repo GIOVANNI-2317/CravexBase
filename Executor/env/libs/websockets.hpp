@@ -39,11 +39,11 @@ namespace ws {
         url.erase(url.find_last_not_of(" \n\r\t") + 1);
 
         auto client = std::make_shared<WebSocketClient>();
-        
+
         // Improved URL parsing
         bool isSecure = url.find("wss://") == 0;
         std::string remaining = url.substr(isSecure ? 6 : 5);
-        
+
         size_t pathPos = remaining.find('/');
         std::string hostPort = (pathPos == std::string::npos) ? remaining : remaining.substr(0, pathPos);
         std::string path = (pathPos == std::string::npos) ? "/" : remaining.substr(pathPos);
@@ -51,7 +51,7 @@ namespace ws {
         // Trim whitespace from hostPort
         hostPort.erase(0, hostPort.find_first_not_of(" \n\r\t"));
         hostPort.erase(hostPort.find_last_not_of(" \n\r\t") + 1);
-        
+
         size_t portPos = hostPort.find(':');
         std::string host = (portPos == std::string::npos) ? hostPort : hostPort.substr(0, portPos);
         int port = (portPos == std::string::npos) ? (isSecure ? INTERNET_DEFAULT_HTTPS_PORT : INTERNET_DEFAULT_HTTP_PORT) : std::stoi(hostPort.substr(portPos + 1));
@@ -69,10 +69,10 @@ namespace ws {
 
         // SSL compatibility
         if (isSecure) {
-            DWORD dwFlags = SECURITY_FLAG_IGNORE_UNKNOWN_CA | 
-                            SECURITY_FLAG_IGNORE_CERT_WRONG_USAGE | 
-                            SECURITY_FLAG_IGNORE_CERT_CN_INVALID | 
-                            SECURITY_FLAG_IGNORE_CERT_DATE_INVALID;
+            DWORD dwFlags = SECURITY_FLAG_IGNORE_UNKNOWN_CA |
+                SECURITY_FLAG_IGNORE_CERT_WRONG_USAGE |
+                SECURITY_FLAG_IGNORE_CERT_CN_INVALID |
+                SECURITY_FLAG_IGNORE_CERT_DATE_INVALID;
             WinHttpSetOption(client->hRequest, WINHTTP_OPTION_SECURITY_FLAGS, &dwFlags, sizeof(dwFlags));
         }
 
@@ -97,19 +97,21 @@ namespace ws {
                 DWORD dwBytesRead = 0;
                 WINHTTP_WEB_SOCKET_BUFFER_TYPE bufferType;
                 DWORD dwError = WinHttpWebSocketReceive(client->hWebSocket, buffer, sizeof(buffer), &dwBytesRead, &bufferType);
-                
+
                 if (dwError == ERROR_SUCCESS) {
                     if (bufferType == WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE || bufferType == WINHTTP_WEB_SOCKET_BINARY_MESSAGE_BUFFER_TYPE) {
                         std::lock_guard<std::mutex> lock(client->mtx);
                         client->messages.push_back(std::string((char*)buffer, dwBytesRead));
-                    } else if (bufferType == WINHTTP_WEB_SOCKET_CLOSE_BUFFER_TYPE) {
+                    }
+                    else if (bufferType == WINHTTP_WEB_SOCKET_CLOSE_BUFFER_TYPE) {
                         client->closed = true;
                     }
-                } else {
+                }
+                else {
                     client->closed = true;
                 }
             }
-        }).detach();
+            }).detach();
 
         return handle;
     }

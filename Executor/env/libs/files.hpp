@@ -19,7 +19,7 @@ namespace files {
     inline fs::path resolvePath(const std::string& input) {
         fs::path ws = getWorkspace();
         fs::path target = ws / input;
-        
+
         // Simple sandbox check
         auto targetStr = target.lexically_normal().string();
         auto wsStr = ws.lexically_normal().string();
@@ -32,7 +32,7 @@ namespace files {
     inline std::string handleReadFile(const std::string& data, const json& settings, DWORD pid) {
         fs::path target = resolvePath(settings.value("f", ""));
         if (target.empty() || !fs::exists(target) || !fs::is_regular_file(target)) return "";
-        
+
         std::ifstream file(target, std::ios::binary);
         if (!file.is_open()) return "";
         std::stringstream buffer;
@@ -43,7 +43,7 @@ namespace files {
     inline std::string handleWriteFile(const std::string& data, const json& settings, DWORD pid) {
         fs::path target = resolvePath(settings.value("f", ""));
         if (target.empty()) return "false";
-        
+
         std::ofstream file(target, std::ios::binary | std::ios::trunc);
         if (!file.is_open()) return "false";
         file << data;
@@ -53,7 +53,7 @@ namespace files {
     inline std::string handleAppendFile(const std::string& data, const json& settings, DWORD pid) {
         fs::path target = resolvePath(settings.value("f", ""));
         if (target.empty()) return "false";
-        
+
         std::ofstream file(target, std::ios::binary | std::ios::app);
         if (!file.is_open()) return "false";
         file << data;
@@ -91,7 +91,7 @@ namespace files {
     inline std::string handleListFiles(const std::string& data, const json& settings, DWORD pid) {
         fs::path target = resolvePath(settings.value("f", ""));
         if (target.empty() || !fs::is_directory(target)) return "[]";
-        
+
         json result = json::array();
         for (const auto& entry : fs::directory_iterator(target)) {
             // Return path relative to workspace to match sUNC

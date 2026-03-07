@@ -109,7 +109,7 @@ namespace proc {
                 return FALSE;
             }
             return TRUE;
-        }, reinterpret_cast<LPARAM>(&info));
+            }, reinterpret_cast<LPARAM>(&info));
         return info.foundHwnd;
     }
 }
