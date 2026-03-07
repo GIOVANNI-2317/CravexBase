@@ -144,8 +144,12 @@ end
 -- Request & Crypt
 env.request = function(options)
     local response = bridgeReq("request", "", options)
-    if response == "" or response == "{}" then return nil end
-    return httpSvc:JSONDecode(response)
+    if response == "" or response == "{}" then return {Success = false, StatusCode = 500, Body = "", Headers = {}} end
+    local decoded = httpSvc:JSONDecode(response)
+    if type(decoded.Success) ~= "boolean" then
+        decoded.Success = (decoded.StatusCode >= 200 and decoded.StatusCode < 300)
+    end
+    return decoded
 end
 
 env.http = { request = env.request }
@@ -159,11 +163,41 @@ env.crypt.base64 = {
     decode = env.crypt.base64decode
 }
 
-env.HttpGet = function(url) 
+env.HttpGet = function(...)
+    local args = {...}
+    local url = type(args[1]) == "string" and args[1] or args[2]
+    if type(url) ~= "string" then return "" end
     local resp = env.request({Url = url})
     return resp and resp.Body or ""
 end
-env.HttpPost = function(url, body) return env.request({Url = url, Method = "POST", Body = body}) end
+env.HttpPost = function(...)
+    local args = {...}
+    local url = type(args[1]) == "string" and args[1] or args[2]
+    local body = type(args[1]) == "string" and args[2] or args[3]
+    if type(url) ~= "string" then return "" end
+    local resp = env.request({Url = url, Method = "POST", Body = type(body) == "string" and body or ""})
+    return resp and resp.Body or ""
+end
+
+local realGame = game
+env.game = newproxy(true)
+local gameMeta = getmetatable(env.game)
+gameMeta.__index = function(self, key)
+    if key == "HttpGet" or key == "HttpGetAsync" then
+        return function(_, ...) return env.HttpGet(...) end
+    elseif key == "HttpPost" or key == "HttpPostAsync" then
+        return function(_, ...) return env.HttpPost(...) end
+    end
+    local val = realGame[key]
+    if type(val) == "function" then
+        return function(_, ...) return val(realGame, ...) end
+    end
+    return val
+end
+gameMeta.__newindex = function(self, key, value) realGame[key] = value end
+gameMeta.__tostring = function() return "game" end
+gameMeta.__metatable = getmetatable(realGame)
+
 
 -- Filesystem api
 env.readfile = function(path) return bridgeReq("readfile", "", {f = path}) end
@@ -251,7 +285,12 @@ safeSpawn(function()
             end
             safeSpawn(function()
                 local func, err = env.loadstring(res)
-                if func then pcall(func) else warn(err) end
+                if func then 
+                    local success, execErr = pcall(func)
+                    if not success then warn("Execution Error: " .. tostring(execErr)) end
+                else 
+                    warn("Compile Error: " .. tostring(err)) 
+                end
             end)
         end
         safeWait()

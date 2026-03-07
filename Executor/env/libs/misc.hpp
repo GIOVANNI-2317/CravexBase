@@ -65,8 +65,12 @@ namespace msc {
         std::string reqBody = settings.value("Body", settings.value("body", ""));
 
         // Trim whitespace from URL
-        targetUrl.erase(0, targetUrl.find_first_not_of(" \n\r\t"));
-        targetUrl.erase(targetUrl.find_last_not_of(" \n\r\t") + 1);
+        if (!targetUrl.empty()) {
+            size_t first = targetUrl.find_first_not_of(" \n\r\t");
+            if (first == std::string::npos) return "{}";
+            size_t last = targetUrl.find_last_not_of(" \n\r\t");
+            targetUrl = targetUrl.substr(first, (last - first + 1));
+        }
 
         if (targetUrl.empty()) return "{}";
 
@@ -75,10 +79,11 @@ namespace msc {
 
         if (!std::regex_match(targetUrl, matchResult, urlRegex)) return "{}";
 
-        std::string hostName = matchResult[2];
+        std::string scheme = matchResult[1].matched ? matchResult[1].str() : "http://";
+        std::string hostName = matchResult[2].str();
         std::string endpointPath = matchResult[3].matched ? matchResult[3].str() : "/";
 
-        httplib::Client httpClient(hostName.c_str());
+        httplib::Client httpClient((scheme + hostName).c_str());
         httpClient.set_follow_location(true);
         httplib::Headers reqHeaders;
 
@@ -119,6 +124,7 @@ namespace msc {
             json respJson;
             respJson["Body"] = httpRes->body;
             respJson["StatusCode"] = httpRes->status;
+            respJson["Success"] = (httpRes->status >= 200 && httpRes->status < 300);
             for (auto& headerItem : httpRes->headers) {
                 respJson["Headers"][headerItem.first] = headerItem.second;
             }
