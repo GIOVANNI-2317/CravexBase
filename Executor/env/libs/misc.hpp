@@ -47,7 +47,7 @@ namespace msc {
         buffer.resize(sz);
         mem::readBytes(dataPtr, buffer.data(), sz, pid);
 
-        // Decompress the bytecode as requested
+        // Decompress
         return code::decompress(buffer);
     }
 
@@ -138,6 +138,35 @@ namespace msc {
         return (GetForegroundWindow() == robloxHwnd) ? "true" : "false";
     }
 
+    inline std::string handleSetClipboard(const std::string& data, const json& settings, DWORD pid) {
+        if (!OpenClipboard(NULL)) return "false";
+        EmptyClipboard();
+        HGLOBAL hg = GlobalAlloc(GMEM_MOVEABLE, data.size() + 1);
+        if (!hg) {
+            CloseClipboard();
+            return "false";
+        }
+        memcpy(GlobalLock(hg), data.c_str(), data.size() + 1);
+        GlobalUnlock(hg);
+        SetClipboardData(CF_TEXT, hg);
+        CloseClipboard();
+        return "true";
+    }
+
+    inline std::string handleGetClipboard(const std::string& data, const json& settings, DWORD pid) {
+        if (!OpenClipboard(NULL)) return "";
+        HANDLE hData = GetClipboardData(CF_TEXT);
+        if (!hData) {
+            CloseClipboard();
+            return "";
+        }
+        char* pszText = static_cast<char*>(GlobalLock(hData));
+        std::string text(pszText);
+        GlobalUnlock(hData);
+        CloseClipboard();
+        return text;
+    }
+
     inline void init() {
         registerBridgeMethod("compile", handleCompile);
         registerBridgeMethod("setscriptbytecode", handleSetScriptBytecode);
@@ -145,5 +174,7 @@ namespace msc {
         registerBridgeMethod("listen", handleListen);
         registerBridgeMethod("request", handleRequest);
         registerBridgeMethod("isrbxactive", handleIsRbxActive);
+        registerBridgeMethod("setclipboard", handleSetClipboard);
+        registerBridgeMethod("getclipboard", handleGetClipboard);
     }
 }

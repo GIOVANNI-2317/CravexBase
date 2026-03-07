@@ -29,29 +29,24 @@ inline inst getPtr(std::string name, DWORD pid) {
     return inst(t, pid);
 }
 
-// Define the handler type for clean registration
+// Handler type
 using BridgeHandler = std::function<std::string(const std::string& data, const json& settings, DWORD pid)>;
 inline std::unordered_map<std::string, BridgeHandler> bridgeHandlers;
 
-// Utility function to make adding new functions very easy
+// Register new methods
 inline void registerBridgeMethod(const std::string& methodName, BridgeHandler handler) {
     bridgeHandlers[methodName] = handler;
 }
 
 inline std::string handleRequest(const std::string& bodyData) {
     std::stringstream stream(bodyData);
-    std::string reqType, pidString, settingsString, textData, line;
+    std::string reqType, pidString, settingsString;
 
     std::getline(stream, reqType);
     std::getline(stream, pidString);
     std::getline(stream, settingsString);
 
-    while (std::getline(stream, line)) {
-        textData += line + "\n";
-    }
-    if (!textData.empty()) {
-        textData.pop_back();
-    }
+    std::string textData((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
 
     DWORD procId = std::stoul(pidString);
     json parsedSettings = json::parse(settingsString);

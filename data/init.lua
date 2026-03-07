@@ -26,8 +26,8 @@ end
 
 local env = getfenv(function() end)
 env.getgenv = function() return env end
-
--- Signal implementation for WebSockets
+--[[
+-- WebSocket signals
 local Signal = {}
 Signal.__index = Signal
 function Signal.new() return setmetatable({ _fns = {} }, Signal) end
@@ -39,7 +39,7 @@ function Signal:Connect(fn)
 end
 function Signal:Fire(...) for _, fn in ipairs(self._fns) do safeSpawn(fn, ...) end end
 
--- Restore UNC Essentials
+-- Env setup
 env.getfenv = function(lvl)
     if lvl == 0 or lvl == nil then return env end
     if type(lvl) == "number" then return getfenv(lvl + 1) end
@@ -62,7 +62,7 @@ if type(task) == "table" then
     for k, v in pairs(task) do if not env.task[k] then env.task[k] = v end end
 end
 
--- WebSocket Class
+-- WS Client
 local WebSocket = {}
 WebSocket.__index = WebSocket
 function WebSocket.connect(url)
@@ -95,6 +95,7 @@ function WebSocket:Close()
     self.OnClose:Fire()
 end
 env.WebSocket = WebSocket
+]]
 
 env.identifyexecutor = function() return "Cravex", "1.1.0" end
 env.getexecutorname = env.identifyexecutor
@@ -122,6 +123,7 @@ local scriptTarget = coreGui:FindFirstChild("RobloxGui").Modules.Common:FindFirs
 env.loadstring = function(src, chunk)
     if type(src) ~= "string" then return nil, "Expected string" end
     chunk = chunk or "loadstring"
+
     local bc = env.compile("return{[ [["..chunk.."]] ]=function(...) " .. src .. "\nend}", true)
     if type(bc) ~= "string" or #bc < 1 then return nil, "Compile error" end
     
@@ -158,6 +160,8 @@ env.http_request = env.request
 env.crypt = {}
 env.crypt.base64encode = function(data) return bridgeReq("crypt.base64encode", data) end
 env.crypt.base64decode = function(data) return bridgeReq("crypt.base64decode", data) end
+env.base64_encode = env.crypt.base64encode
+env.base64_decode = env.crypt.base64decode
 env.crypt.base64 = {
     encode = env.crypt.base64encode,
     decode = env.crypt.base64decode
@@ -179,30 +183,84 @@ env.HttpPost = function(...)
     return resp and resp.Body or ""
 end
 
+-- game proxy
 local realGame = game
 env.game = newproxy(true)
 local gameMeta = getmetatable(env.game)
+
+local function getReal(v) return v == env.game and realGame or v end
+
 gameMeta.__index = function(self, key)
-    if key == "HttpGet" or key == "HttpGetAsync" then
-        return function(_, ...) return env.HttpGet(...) end
-    elseif key == "HttpPost" or key == "HttpPostAsync" then
-        return function(_, ...) return env.HttpPost(...) end
+    if key == "HttpGet" or key == "HttpGetAsync" then return function(_, ...) return env.HttpGet(...) end end
+    if key == "HttpPost" or key == "HttpPostAsync" then return function(_, ...) return env.HttpPost(...) end end
+    
+    -- Handle GetService and variants with the "real object" return check
+    if key == "GetService" or key == "getService" or key == "service" or key == "FindService" or key == "findService" then
+        return function(_, serviceName)
+            local s = realGame:GetService(serviceName)
+            if s == realGame then return env.game end
+            return s
+        end
     end
+
     local val = realGame[key]
     if type(val) == "function" then
-        return function(_, ...) return val(realGame, ...) end
+        return function(s, ...)
+            return val(getReal(s), ...)
+        end
     end
     return val
 end
-gameMeta.__newindex = function(self, key, value) realGame[key] = value end
+
+gameMeta.__newindex = function(_, k, v) realGame[k] = v end
 gameMeta.__tostring = function() return "game" end
-gameMeta.__metatable = getmetatable(realGame)
+gameMeta.__metatable = "The metatable is locked"
 
+-- hooks
+local oldInstanceNew = Instance.new
+env.Instance = {
+    new = function(cls, parent)
+        return oldInstanceNew(cls, getReal(parent))
+    end
+}
 
--- Filesystem api
-env.readfile = function(path) return bridgeReq("readfile", "", {f = path}) end
-env.writefile = function(path, data) bridgeReq("writefile", data, {f = path}) end
-env.appendfile = function(path, data) bridgeReq("appendfile", data, {f = path}) end
+local oldTypeof = typeof
+env.typeof = function(obj)
+    if obj == env.game then return "Instance" end
+    return oldTypeof(obj)
+end
+
+local oldType = type
+env.type = function(obj)
+    if obj == env.game then return "userdata" end
+    return oldType(obj)
+end
+
+-- filesystem
+local blockedExts = { ".7z", ".ade", ".adp", ".apk", ".appx", ".appxbundle", ".application", ".bat", ".cab", ".chm", ".cmd", ".com", ".cpl", ".csh", ".dll", ".dmg", ".docm", ".drv", ".exe", ".gadget", ".gz", ".hta", ".img", ".inf", ".ins", ".isp", ".iso", ".jar", ".js", ".jse", ".ksh", ".lib", ".lnk", ".mde", ".msc", ".msh", ".msh1", ".msh2", ".mshxml", ".msi", ".msp", ".mst", ".nsh", ".ocx", ".php", ".pif", ".pl", ".pptm", ".ps", ".ps1", ".ps1xml", ".ps2", ".ps2xml", ".psc1", ".psc2", ".psd1", ".psm1", ".py", ".pyw", ".rar", ".rb", ".rbw", ".reg", ".scf", ".scr", ".sct", ".sh", ".shb", ".sys", ".tar", ".url", ".vb", ".vbe", ".vbs", ".vxd", ".ws", ".wsc", ".wsf", ".wsh", ".xlsm", ".xml", ".zip" }
+local function hasBlockedExt(p)
+    if type(p) ~= "string" then return false end
+    p = p:lower()
+    for _, ext in ipairs(blockedExts) do
+        if p:sub(-#ext) == ext then return true end
+    end
+    return false
+end
+
+env.readfile = function(path) 
+    if not env.isfile(path) then error("file does not exist", 2) end
+    local res = bridgeReq("readfile", "", {f = tostring(path), b64 = true}) 
+    if res and res ~= "" then return env.crypt.base64decode(res) end
+    return ""
+end
+env.writefile = function(path, data) 
+    if hasBlockedExt(path) then error("attempt to write restricted file format", 2) end
+    bridgeReq("writefile", env.crypt.base64encode(type(data) == "string" and data or tostring(data)), {f = tostring(path), b64 = true}) 
+end
+env.appendfile = function(path, data) 
+    if hasBlockedExt(path) then error("attempt to write restricted file format", 2) end
+    bridgeReq("appendfile", env.crypt.base64encode(type(data) == "string" and data or tostring(data)), {f = tostring(path), b64 = true}) 
+end
 env.isfile = function(path) return bridgeReq("isfile", "", {f = path}) == "true" end
 env.isfolder = function(path) return bridgeReq("isfolder", "", {f = path}) == "true" end
 env.makefolder = function(path) bridgeReq("makefolder", "", {f = path}) end
@@ -227,18 +285,18 @@ env.dumpstring = env.getscriptbytecode
 
 env.getcallbackvalue = function(obj, prop) return nil end
 
--- Closures & State
+-- miscellaneous
 env.checkcaller = function() return true end
 env.iscclosure = function(f) return debug.info(f, "s") == "[C]" or debug.info(f, "s") == "=[C]" end
 env.islclosure = function(f) return not env.iscclosure(f) end
 env.isexecutorclosure = function(f) return true end
 env.newcclosure = function(f) return f end
 env.clonefunction = function(f) return function(...) return f(...) end end
-env.hookfunction = function(f, h) return f end -- Placeholder
+env.hookfunction = function(f, h) return f end
 env.getscriptclosure = function(s) return function() return require(s) end end
 env.getscriptfunction = env.getscriptclosure
 
--- Console
+-- console
 env.rconsoleprint = function(m) print(m) end
 env.rconsoleclear = function() end
 env.rconsolename = function(t) end
@@ -270,7 +328,13 @@ env.cloneref = function(obj)
 end
 
 env.compareinstances = function(p1, p2)
-    return (clonerefs[p1] or p1) == (clonerefs[p2] or p2) end
+    return (clonerefs[p1] or p1) == (clonerefs[p2] or p2) 
+end
+
+-- clipboard
+env.setclipboard = function(data) bridgeReq("setclipboard", tostring(data)) end
+env.toclipboard = env.setclipboard
+env.getclipboard = function() return bridgeReq("getclipboard") end
 
 -- listener loop
 bridgeReq("listen")
@@ -297,7 +361,7 @@ safeSpawn(function()
     end
 end)
 
-print("Attached!")
+print("Ready.")
 _G._cravex_init = true
 
 pcall(function()

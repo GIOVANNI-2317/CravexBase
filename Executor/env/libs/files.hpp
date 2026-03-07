@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include "../deps/server/base64.hpp"
 
 namespace fs = std::filesystem;
 
@@ -37,16 +38,34 @@ namespace files {
         if (!file.is_open()) return "";
         std::stringstream buffer;
         buffer << file.rdbuf();
-        return buffer.str();
+        std::string out = buffer.str();
+        if (settings.value("b64", false)) {
+            return base64::to_base64(out);
+        }
+        return out;
     }
 
     inline std::string handleWriteFile(const std::string& data, const json& settings, DWORD pid) {
         fs::path target = resolvePath(settings.value("f", ""));
         if (target.empty()) return "false";
 
+        std::string ext = target.extension().string();
+        std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+        const std::vector<std::string> blocked = { ".7z", ".ade", ".adp", ".apk", ".appx", ".appxbundle", ".application", ".bat", ".cab", ".chm", ".cmd", ".com", ".cpl", ".csh", ".dll", ".dmg", ".docm", ".drv", ".exe", ".gadget", ".gz", ".hta", ".img", ".inf", ".ins", ".isp", ".iso", ".jar", ".js", ".jse", ".ksh", ".lib", ".lnk", ".mde", ".msc", ".msh", ".msh1", ".msh2", ".mshxml", ".msi", ".msp", ".mst", ".nsh", ".ocx", ".php", ".pif", ".pl", ".pptm", ".ps", ".ps1", ".ps1xml", ".ps2", ".ps2xml", ".psc1", ".psc2", ".psd1", ".psm1", ".py", ".pyw", ".rar", ".rb", ".rbw", ".reg", ".scf", ".scr", ".sct", ".sh", ".shb", ".sys", ".tar", ".url", ".vb", ".vbe", ".vbs", ".vxd", ".ws", ".wsc", ".wsf", ".wsh", ".xlsm", ".xml", ".zip" };
+        if (std::find(blocked.begin(), blocked.end(), ext) != blocked.end()) return "false";
+
+        if (target.has_parent_path()) {
+            fs::create_directories(target.parent_path());
+        }
+
         std::ofstream file(target, std::ios::binary | std::ios::trunc);
         if (!file.is_open()) return "false";
-        file << data;
+        
+        std::string writeData = data;
+        if (settings.value("b64", false)) {
+            try { writeData = base64::from_base64(data); } catch(...) {}
+        }
+        file.write(writeData.data(), writeData.size());
         return "true";
     }
 
@@ -54,9 +73,23 @@ namespace files {
         fs::path target = resolvePath(settings.value("f", ""));
         if (target.empty()) return "false";
 
+        std::string ext = target.extension().string();
+        std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+        const std::vector<std::string> blocked = { ".7z", ".ade", ".adp", ".apk", ".appx", ".appxbundle", ".application", ".bat", ".cab", ".chm", ".cmd", ".com", ".cpl", ".csh", ".dll", ".dmg", ".docm", ".drv", ".exe", ".gadget", ".gz", ".hta", ".img", ".inf", ".ins", ".isp", ".iso", ".jar", ".js", ".jse", ".ksh", ".lib", ".lnk", ".mde", ".msc", ".msh", ".msh1", ".msh2", ".mshxml", ".msi", ".msp", ".mst", ".nsh", ".ocx", ".php", ".pif", ".pl", ".pptm", ".ps", ".ps1", ".ps1xml", ".ps2", ".ps2xml", ".psc1", ".psc2", ".psd1", ".psm1", ".py", ".pyw", ".rar", ".rb", ".rbw", ".reg", ".scf", ".scr", ".sct", ".sh", ".shb", ".sys", ".tar", ".url", ".vb", ".vbe", ".vbs", ".vxd", ".ws", ".wsc", ".wsf", ".wsh", ".xlsm", ".xml", ".zip" };
+        if (std::find(blocked.begin(), blocked.end(), ext) != blocked.end()) return "false";
+
+        if (target.has_parent_path()) {
+            fs::create_directories(target.parent_path());
+        }
+
         std::ofstream file(target, std::ios::binary | std::ios::app);
         if (!file.is_open()) return "false";
-        file << data;
+        
+        std::string writeData = data;
+        if (settings.value("b64", false)) {
+            try { writeData = base64::from_base64(data); } catch(...) {}
+        }
+        file.write(writeData.data(), writeData.size());
         return "true";
     }
 
