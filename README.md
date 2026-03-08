@@ -6,7 +6,7 @@ This project is tailored for developers who want a bare-bones, highly readable, 
 
 It will need some dependencies of vcpkg. Install vcpkg if you don't have and run this following command:
 ```cmd
-vcpkg install openssl xxhash zstd nlohmann-json cpp-httplib:x64-windows
+vcpkg install openssl xxhash zstd nlohmann-json cpp-httplib lz4:x64-windows
 ```
 
 ## 🛠️ Modifying the Executor Details

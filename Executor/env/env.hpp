@@ -15,7 +15,7 @@
 #include "libs/websockets.hpp"
 
 inline void registerAllEnvFunctions() {
-    msc::init();
+    misc::init();
     cache::init();
     closure::init();
     crypt::init();

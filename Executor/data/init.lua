@@ -26,6 +26,29 @@ end
 
 local env = getfenv(function() end)
 env.getgenv = function() return env end
+
+-- input
+env.isrbxactive = function() return bridgeReq("isrbxactive") == "true" end
+env.isgameactive = env.isrbxactive
+env.iswindowactive = env.isrbxactive
+
+env.mouse1click = function() bridgeReq("mouse1click") end
+env.mouse1press = function() bridgeReq("mouse1press") end
+env.mouse1release = function() bridgeReq("mouse1release") end
+env.mouse2click = function() bridgeReq("mouse2click") end
+env.mouse2press = function() bridgeReq("mouse2press") end
+env.mouse2release = function() bridgeReq("mouse2release") end
+env.mousemoveabs = function(x, y) bridgeReq("mousemoveabs", "", {x=tostring(x), y=tostring(y)}) end
+env.mousemoverel = function(x, y) bridgeReq("mousemoverel", "", {dx=tostring(x), dy=tostring(y)}) end
+env.mousescroll = function(v) bridgeReq("mousescroll", tostring(v)) end
+
+env.keypress = function(k) bridgeReq("keypress", tostring(k)) end
+env.keyrelease = function(k) bridgeReq("keyrelease", tostring(k)) end
+env.keytap = function(k) bridgeReq("keytap", tostring(k)) end
+env.keyclick = env.keypress
+
+env.messagebox = function(m, t, ty) bridgeReq("messagebox", tostring(m), {t=tostring(t), type=tostring(ty)}) end
+
 --[[
 -- WebSocket signals
 local Signal = {}
@@ -39,7 +62,7 @@ function Signal:Connect(fn)
 end
 function Signal:Fire(...) for _, fn in ipairs(self._fns) do safeSpawn(fn, ...) end end
 
--- Env setup
+-- env
 env.getfenv = function(lvl)
     if lvl == 0 or lvl == nil then return env end
     if type(lvl) == "number" then return getfenv(lvl + 1) end
@@ -125,6 +148,32 @@ env.getscriptbytecode = function(scr)
     return bc
 end
 
+env.getscripts = function()
+    local scripts = {}
+    local coreGui = game:GetService("CoreGui")
+    for _, v in ipairs(game:GetDescendants()) do
+        if (v:IsA("LocalScript") or v:IsA("ModuleScript") or v:IsA("Script")) and not v:IsA("CoreScript") then
+            if not v:IsDescendantOf(coreGui) then
+                table.insert(scripts, v)
+            end
+        end
+    end
+    return scripts
+end
+
+env.getloadedmodules = function()
+    local modules = {}
+    local coreGui = game:GetService("CoreGui")
+    for _, v in ipairs(game:GetDescendants()) do
+        if v:IsA("ModuleScript") and not v:IsA("CoreScript") then
+            if not v:IsDescendantOf(coreGui) then
+                table.insert(modules, v)
+            end
+        end
+    end
+    return modules
+end
+
 local scriptTarget = coreGui:FindFirstChild("RobloxGui").Modules.Common:FindFirstChild("Constants") or coreGui:FindFirstChild("RobloxGui").Modules.Common:FindFirstChild("CommonUtil")
 env.loadstring = function(src, chunk)
     if type(src) ~= "string" then return nil, "Expected string" end
@@ -143,6 +192,7 @@ env.loadstring = function(src, chunk)
     end
     
     env.setscriptbytecode(scriptTarget, bc)
+    
     local success, res = pcall(function() return debug.loadmodule(scriptTarget) end)
     if not success or type(res) ~= "function" then 
         warn("[Cravex] loadstring LoadModule failed: " .. tostring(res))
@@ -156,6 +206,25 @@ env.loadstring = function(src, chunk)
     warn("[Cravex] loadstring execution failed: " .. tostring(res2))
     return nil, "Chunk execution failed: " .. tostring(res2)
 end
+
+env.getscriptclosure = function(scr)
+    local bc = env.getscriptbytecode(scr)
+    if not bc then return nil end
+    local func, err = env.loadstring(bc)
+    return func
+end
+
+env.getscripthash = function(scr)
+    local bc = env.getscriptbytecode(scr)
+    if not bc then return nil end
+    return typeof(env.crypt) == "table" and type(env.crypt.hash) == "function" and env.crypt.hash(bc, "sha384") or "mock_hash"
+end
+
+env.getrenv = function() return _G end
+env.getreg = function() return debug.getregistry() end
+
+_G.loadstring = env.loadstring
+getfenv(0).loadstring = env.loadstring
 
 -- Request & Crypt
 env.request = function(options)
@@ -180,6 +249,16 @@ env.crypt.base64 = {
     encode = env.crypt.base64encode,
     decode = env.crypt.base64decode
 }
+env.crypt.lz4compress = function(data) 
+    local b64 = bridgeReq("crypt.lz4compress", tostring(data))
+    return env.crypt.base64decode(b64)
+end
+env.crypt.lz4decompress = function(data) 
+    local b64 = bridgeReq("crypt.lz4decompress", env.crypt.base64encode(tostring(data)))
+    return env.crypt.base64decode(b64)
+end
+env.lz4compress = env.crypt.lz4compress
+env.lz4decompress = env.crypt.lz4decompress
 
 env.HttpGet = function(...)
     local args = {...}
@@ -212,7 +291,6 @@ gameMeta.__index = function(self, key)
     if key == "HttpGet" or key == "HttpGetAsync" then return function(_, ...) return env.HttpGet(...) end end
     if key == "HttpPost" or key == "HttpPostAsync" then return function(_, ...) return env.HttpPost(...) end end
     
-    -- Handle GetService and variants with the "real object" return check
     if key == "GetService" or key == "getService" or key == "service" or key == "FindService" or key == "findService" then
         return function(_, serviceName)
             local s = realGame:GetService(serviceName)
@@ -303,25 +381,279 @@ env.dumpstring = env.getscriptbytecode
 
 env.getcallbackvalue = function(obj, prop) return nil end
 
--- miscellaneous
+-- misc
+local cclosureRegistry = {}
+local realDebug = debug
+local oldDebugInfo = realDebug.info
+env.debug = setmetatable({}, {
+    __index = realDebug
+})
+env.debug.info = function(f, ...)
+    local res = {oldDebugInfo(f, ...)}
+    if type(f) == "function" and cclosureRegistry[f] then
+        local args = {...}
+        local options = args[#args]
+        if type(options) == "string" then
+            local resultIndex = 0
+            for j=1, #options do
+                local char = string.sub(options, j, j)
+                if char ~= " " then
+                    resultIndex = resultIndex + 1
+                    if char == "s" then
+                        res[resultIndex] = "[C]"
+                    end
+                end
+            end
+        end
+    end
+    return unpack(res)
+end
+
 env.checkcaller = function() return true end
-env.iscclosure = function(f) return debug.info(f, "s") == "[C]" or debug.info(f, "s") == "=[C]" end
+env.iscclosure = function(f) return env.debug.info(f, "s") == "[C]" or env.debug.info(f, "s") == "=[C]" end
 env.islclosure = function(f) return not env.iscclosure(f) end
 env.isexecutorclosure = function(f) return true end
-env.newcclosure = function(f) return f end
+env.newcclosure = function(f) 
+    local wrapped = function(...) return f(...) end
+    cclosureRegistry[wrapped] = true
+    return wrapped
+end
 env.clonefunction = function(f) return function(...) return f(...) end end
 env.hookfunction = function(f, h) return f end
 env.getscriptclosure = function(s) return function() return require(s) end end
 env.getscriptfunction = env.getscriptclosure
+
+env.fireclickdetector = function(detector, distance, event)
+    if typeof(detector) ~= "Instance" or not detector:IsA("ClickDetector") then return end
+    local part = detector.Parent
+    if not part or not part:IsA("BasePart") then return end
+    
+    local cam = workspace.CurrentCamera
+    if not cam then return end
+    
+    local oldCFrame = part.CFrame
+    local oldTrans = part.Transparency
+    local oldCanCollide = part.CanCollide
+    local oldMaxDist = detector.MaxActivationDistance
+    
+    part.Transparency = 1
+    part.CanCollide = false
+    detector.MaxActivationDistance = math.huge
+    part.CFrame = cam.CFrame * CFrame.new(0, 0, -1.5)
+    
+    local vu = game:GetService("VirtualUser")
+    local center = cam.ViewportSize / 2
+    if event == "RightMouseClick" then
+        vu:ClickButton2(center)
+    elseif event == "MouseHoverEnter" then
+        vu:MoveMouse(center, cam.CFrame)
+    elseif event == "MouseHoverLeave" then
+        vu:MoveMouse(Vector2.new(0,0), cam.CFrame)
+    else
+        vu:ClickButton1(center)
+    end
+    
+    task.spawn(function()
+        task.wait()
+        part.CFrame = oldCFrame
+        part.Transparency = oldTrans
+        part.CanCollide = oldCanCollide
+        detector.MaxActivationDistance = oldMaxDist
+    end)
+end
 
 -- console
 env.rconsoleprint = function(m) print(m) end
 env.rconsoleclear = function() end
 env.rconsolename = function(t) end
 
--- Drawing
-env.isrenderobj = function(o) return type(o) == "table" and o.__type == "Drawing" end
-env.cleardrawcache = function() end
+-- drawing
+local drawingUI = Instance.new("ScreenGui")
+drawingUI.Name = httpSvc:GenerateGUID(false)
+drawingUI.IgnoreGuiInset = true
+drawingUI.DisplayOrder = 2147483647
+local s, e = pcall(function() drawingUI.Parent = coreGui end)
+if not s then drawingUI.Parent = players.LocalPlayer:WaitForChild("PlayerGui") end
+
+local drawings = {}
+env.cleardrawcache = function()
+    for _, v in pairs(drawings) do pcall(function() v:Remove() end) end
+    drawings = {}
+end
+
+env.isrenderobj = function(o) 
+    if type(o) == "table" and o.__type == "Drawing" then return true end
+    if type(o) == "userdata" and typeof(o) == "table" and o.__type == "Drawing" then return true end
+    return false
+end
+env.getrenderproperty = function(obj, prop) return obj[prop] end
+env.setrenderproperty = function(obj, prop, val) obj[prop] = val end
+
+local function updateDrawing(obj)
+
+    if not obj.Instance then return end
+    local inst = obj.Instance
+    inst.Visible = obj.Visible
+    inst.ZIndex = obj.ZIndex
+    if obj.Type == "Line" then
+        if not obj.From or not obj.To then return end
+        local dist = (obj.To - obj.From).Magnitude
+        local center = (obj.To + obj.From) / 2
+        local angle = math.deg(math.atan2(obj.To.Y - obj.From.Y, obj.To.X - obj.From.X))
+        inst.Position = UDim2.new(0, center.X, 0, center.Y)
+        inst.Size = UDim2.new(0, dist, 0, obj.Thickness)
+        inst.Rotation = angle
+        inst.BackgroundColor3 = obj.Color
+        inst.BackgroundTransparency = obj.Transparency
+    elseif obj.Type == "Text" then
+        inst.Text = obj.Text
+        inst.TextColor3 = obj.Color
+        inst.TextTransparency = obj.Transparency
+        inst.TextSize = obj.Size
+        inst.Position = UDim2.new(0, obj.Position.X, 0, obj.Position.Y)
+        inst.TextXAlignment = obj.Center and Enum.TextXAlignment.Center or Enum.TextXAlignment.Left
+        local stroke = inst:FindFirstChild("UIStroke")
+        if obj.Outline then
+            if not stroke then stroke = Instance.new("UIStroke", inst) end
+            stroke.Color = obj.OutlineColor
+            stroke.Transparency = obj.Transparency
+        elseif stroke then stroke:Destroy() end
+    elseif obj.Type == "Circle" then
+        inst.Position = UDim2.new(0, obj.Position.X - obj.Radius, 0, obj.Position.Y - obj.Radius)
+        inst.Size = UDim2.new(0, obj.Radius * 2, 0, obj.Radius * 2)
+        inst.BackgroundColor3 = obj.Color
+        inst.BackgroundTransparency = obj.Filled and obj.Transparency or 1
+        local stroke = inst:FindFirstChild("UIStroke")
+        if not obj.Filled then
+            if not stroke then stroke = Instance.new("UIStroke", inst) end
+            stroke.Color = obj.Color
+            stroke.Transparency = obj.Transparency
+            stroke.Thickness = obj.Thickness
+        elseif stroke then stroke:Destroy() end
+    elseif obj.Type == "Square" then
+        inst.Position = UDim2.new(0, obj.Position.X, 0, obj.Position.Y)
+        inst.Size = UDim2.new(0, obj.Size.X, 0, obj.Size.Y)
+        inst.BackgroundColor3 = obj.Color
+        inst.BackgroundTransparency = obj.Filled and obj.Transparency or 1
+        local stroke = inst:FindFirstChild("UIStroke")
+        if not obj.Filled then
+            if not stroke then stroke = Instance.new("UIStroke", inst) end
+            stroke.Color = obj.Color
+            stroke.Transparency = obj.Transparency
+            stroke.Thickness = obj.Thickness
+        elseif stroke then stroke:Destroy() end
+    elseif obj.Type == "Quad" or obj.Type == "Triangle" then
+        inst.Visible = false
+    elseif obj.Type == "Image" then
+        inst.Position = UDim2.new(0, obj.Position.X, 0, obj.Position.Y)
+        inst.Size = UDim2.new(0, obj.Size.X, 0, obj.Size.Y)
+        inst.ImageColor3 = obj.Color
+        inst.ImageTransparency = obj.Transparency
+    end
+end
+
+env.Drawing = {
+    new = function(type)
+        local obj = {
+            __type = "Drawing", Type = type,
+            Visible = false, ZIndex = 0, Transparency = 0, Color = Color3.new(1,1,1),
+            __OBJECT_EXISTS = true,
+            Remove = function(self)
+                self.Visible = false
+                self.__OBJECT_EXISTS = false
+                if self.Instance then self.Instance:Destroy() end
+                drawings[self] = nil
+            end,
+            Destroy = function(self) self:Remove() end
+        }
+        
+        if type == "Line" then
+            obj.Thickness = 1
+            obj.From = Vector2.new()
+            obj.To = Vector2.new()
+            obj.Instance = Instance.new("Frame")
+            obj.Instance.AnchorPoint = Vector2.new(0.5, 0.5)
+            obj.Instance.BorderSizePixel = 0
+        elseif type == "Text" then
+            obj.Text = ""
+            obj.Size = 16
+            obj.Center = false
+            obj.Outline = false
+            obj.OutlineColor = Color3.new(0,0,0)
+            obj.Position = Vector2.new()
+            obj.Font = 0
+            obj.Instance = Instance.new("TextLabel")
+            obj.Instance.BackgroundTransparency = 1
+            obj.Instance.Font = Enum.Font.Code
+        elseif type == "Circle" then
+            obj.Thickness = 1
+            obj.NumSides = 0
+            obj.Radius = 0
+            obj.Filled = false
+            obj.Position = Vector2.new()
+            obj.Instance = Instance.new("Frame")
+            obj.Instance.BorderSizePixel = 0
+            Instance.new("UICorner", obj.Instance).CornerRadius = UDim.new(1, 0)
+        elseif type == "Square" then
+            obj.Thickness = 1
+            obj.Size = Vector2.new()
+            obj.Position = Vector2.new()
+            obj.Filled = false
+            obj.Instance = Instance.new("Frame")
+            obj.Instance.BorderSizePixel = 0
+        elseif type == "Quad" then
+            obj.Thickness = 1
+            obj.PointA = Vector2.new()
+            obj.PointB = Vector2.new()
+            obj.PointC = Vector2.new()
+            obj.PointD = Vector2.new()
+            obj.Filled = false
+            obj.Instance = Instance.new("Frame")
+            obj.Instance.BackgroundTransparency = 1
+        elseif type == "Triangle" then
+            obj.Thickness = 1
+            obj.PointA = Vector2.new()
+            obj.PointB = Vector2.new()
+            obj.PointC = Vector2.new()
+            obj.Filled = false
+            obj.Instance = Instance.new("Frame")
+            obj.Instance.BackgroundTransparency = 1
+        elseif type == "Image" then
+            obj.Data = ""
+            obj.Size = Vector2.new()
+            obj.Position = Vector2.new()
+            obj.Rounding = 0
+            obj.Instance = Instance.new("ImageLabel")
+            obj.Instance.BackgroundTransparency = 1
+        else
+            error("Invalid Drawing type")
+        end
+        
+        obj.Instance.Parent = drawingUI
+        drawings[obj] = true
+        
+        local proxy = newproxy(true)
+        local meta = getmetatable(proxy)
+        meta.__index = function(_, k) 
+            if k == "TextBounds" and type == "Text" then
+                return obj.Instance.TextBounds
+            end
+            if k == "__OBJECT_EXISTS" then
+                return obj.__OBJECT_EXISTS
+            end
+            return obj[k]
+        end
+        meta.__newindex = function(_, k, v)
+            if obj[k] == v then return end
+            obj[k] = v
+            updateDrawing(obj)
+        end
+        
+        return proxy
+    end,
+    Fonts = { UI = 0, System = 1, Plex = 2, Monospace = 3 },
+    Font = { UI = 0, System = 1, Plex = 2, Monospace = 3 }
+}
 
 local clonerefs = {}
 env.cloneref = function(obj)

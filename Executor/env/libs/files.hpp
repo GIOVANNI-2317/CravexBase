@@ -3,7 +3,7 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
-#include "../deps/server/base64.hpp"
+#include "../../deps/server/base64.hpp"
 
 namespace fs = std::filesystem;
 
