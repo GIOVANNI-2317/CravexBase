@@ -4,6 +4,11 @@ Welcome to the **Cravex External Executor Base**, a clean, simple, and open-sour
 
 This project is tailored for developers who want a bare-bones, highly readable, and extensible C++ codebase without wading through messy, monolithic designs. It acts as a perfect canvas to build out your own external UI and exploit logic cleanly.
 
+It will need some dependencies of vcpkg. Install vcpkg if you don't have and run this following command:
+```cmd
+vcpkg install openssl xxhash zstd nlohmann-json cpp-httplib:x64-windows
+```
+
 ## 🛠️ Modifying the Executor Details
 
 To change the executor's name and version returned in Roblox environment checks (like `identifyexecutor` or `getexecutorname`), simply open the payload in **`data/init.lua`**.
