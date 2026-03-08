@@ -15,14 +15,19 @@ public:
 
     uintptr_t getAddr() { return addr; }
 
-    std::string getName() {
-        uintptr_t nPtr = mem::read<uintptr_t>(addr + offs::name, pid);
+    std::string getString(uintptr_t nPtr) {
+        if (!nPtr) return "";
         size_t sz = mem::read<size_t>(nPtr + 0x10, pid);
         if (sz >= 16) nPtr = mem::read<uintptr_t>(nPtr, pid);
+        if (sz == 0 || sz > 1024) return ""; // Sanity check
         std::string s;
-        char c = 0;
-        for (int i = 0; (c = mem::read<char>(nPtr + i, pid)) != 0; i++) s += c;
+        s.resize(sz);
+        mem::readBytes(nPtr, s.data(), sz, pid);
         return s;
+    }
+
+    std::string getName() {
+        return getString(mem::read<uintptr_t>(addr + offs::name, pid));
     }
 
     inst findChild(std::string name) {
@@ -30,6 +35,7 @@ public:
         if (!cPtr) return inst(0, pid);
         uintptr_t start = mem::read<uintptr_t>(cPtr, pid);
         uintptr_t end = mem::read<uintptr_t>(cPtr + offs::childrenEnd, pid);
+        if (!start || !end || start >= end) return inst(0, pid);
         for (uintptr_t ch = start; ch < end; ch += 0x10) {
             uintptr_t p = mem::read<uintptr_t>(ch, pid);
             if (p) {
@@ -42,19 +48,15 @@ public:
 
     inst waitChild(std::string name) {
         inst i = findChild(name);
-        while (!i.getAddr()) { Sleep(10); i = findChild(name); }
+        int attempts = 0;
+        while (!i.getAddr() && attempts < 100) { Sleep(10); i = findChild(name); attempts++; }
         return i;
     }
 
     std::string getClass() {
         uintptr_t dPtr = mem::read<uintptr_t>(addr + offs::classDesc, pid);
-        uintptr_t nPtr = mem::read<uintptr_t>(dPtr + offs::classDescToName, pid);
-        size_t sz = mem::read<size_t>(nPtr + 0x10, pid);
-        if (sz >= 16) nPtr = mem::read<uintptr_t>(nPtr, pid);
-        std::string s;
-        char c = 0;
-        for (int i = 0; (c = mem::read<char>(nPtr + i, pid)) != 0; i++) s += c;
-        return s;
+        if (!dPtr) return "";
+        return getString(mem::read<uintptr_t>(dPtr + offs::classDescToName, pid));
     }
 
     std::function<void()> setCode(const std::vector<char>& bc, size_t sz) {

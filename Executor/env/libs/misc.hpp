@@ -22,17 +22,22 @@ namespace msc {
 
     inline std::string handleGetScriptBytecode(const std::string& data, const json& settings, DWORD pid) {
         inst targetScript = getPtr(settings.value("cn", ""), pid);
+        if (!targetScript.getAddr()) return "null:invalid_ptr";
+
         uintptr_t bcPtr = 0;
         std::string className = targetScript.getClass();
 
-        if (className == "LocalScript") {
+        if (className == "LocalScript" || className == "Script") {
             bcPtr = mem::read<uintptr_t>(targetScript.getAddr() + offs::lscriptBc, pid);
         }
         else if (className == "ModuleScript") {
             bcPtr = mem::read<uintptr_t>(targetScript.getAddr() + offs::mscriptBc, pid);
         }
+        else {
+            return "null:unsupported_class:" + className;
+        }
 
-        if (!bcPtr) return "";
+        if (!bcPtr) return "null:no_bc_ptr:" + className;
 
         // Bytecode string object is at bcPtr + 0x10
         uintptr_t strObj = bcPtr + 0x10;
@@ -41,7 +46,7 @@ namespace msc {
 
         uintptr_t dataPtr = (cap > 15) ? mem::read<uintptr_t>(strObj, pid) : strObj;
 
-        if (!dataPtr || !sz) return "";
+        if (!dataPtr || !sz) return "null:no_data_ptr:" + className;
 
         std::string buffer;
         buffer.resize(sz);
@@ -60,77 +65,82 @@ namespace msc {
     }
 
     inline std::string handleRequest(const std::string& data, const json& settings, DWORD pid) {
-        std::string targetUrl = settings.value("Url", settings.value("url", ""));
-        std::string method = settings.value("Method", settings.value("method", "GET"));
-        std::string reqBody = settings.value("Body", settings.value("body", ""));
+        std::string fullUrl = settings.value("Url", "");
+        if (fullUrl.empty()) return "{\"Success\":false, \"StatusCode\":400, \"Body\":\"Empty URL\"}";
 
-        // Trim whitespace from URL
-        if (!targetUrl.empty()) {
-            size_t first = targetUrl.find_first_not_of(" \n\r\t");
-            if (first == std::string::npos) return "{}";
-            size_t last = targetUrl.find_last_not_of(" \n\r\t");
-            targetUrl = targetUrl.substr(first, (last - first + 1));
-        }
+        std::string method = settings.value("Method", "GET");
+        std::transform(method.begin(), method.end(), method.begin(), ::toupper);
+        std::string body = settings.value("Body", "");
 
-        if (targetUrl.empty()) return "{}";
-
-        std::regex urlRegex(R"(^(http[s]?:\/\/)?([^\/]+)(\/.*)?$)");
-        std::smatch matchResult;
-
-        if (!std::regex_match(targetUrl, matchResult, urlRegex)) return "{}";
-
-        std::string scheme = matchResult[1].matched ? matchResult[1].str() : "http://";
-        std::string hostName = matchResult[2].str();
-        std::string endpointPath = matchResult[3].matched ? matchResult[3].str() : "/";
-
-        httplib::Client httpClient((scheme + hostName).c_str());
-        httpClient.set_follow_location(true);
-        httplib::Headers reqHeaders;
-
-        // Handle both "Headers" and "headers" (UNC uses "Headers")
-        json headers = settings.contains("Headers") ? settings["Headers"] : (settings.contains("headers") ? settings["headers"] : json::object());
-
-        bool hasUserAgent = false;
-        for (auto& headerItem : headers.items()) {
-            std::string key = headerItem.key();
-            std::string val = headerItem.value().is_string() ? headerItem.value().get<std::string>() : headerItem.value().dump();
-            reqHeaders.insert({ key, val });
-
-            // Case-insensitive check for User-Agent
-            std::string keyLower = key;
-            std::transform(keyLower.begin(), keyLower.end(), keyLower.begin(), ::tolower);
-            if (keyLower == "user-agent") hasUserAgent = true;
-        }
-
-        if (!hasUserAgent) {
-            reqHeaders.insert({ "User-Agent", "CravexBase/0.1.1" });
-        }
-
-        httplib::Result httpRes;
-        if (method == "GET") {
-            httpRes = httpClient.Get(endpointPath, reqHeaders);
-        }
-        else if (method == "POST") {
-            httpRes = httpClient.Post(endpointPath, reqHeaders, reqBody, "application/json");
-        }
-        else if (method == "PUT") {
-            httpRes = httpClient.Put(endpointPath, reqHeaders, reqBody, "application/json");
-        }
-        else if (method == "DELETE") {
-            httpRes = httpClient.Delete(endpointPath, reqHeaders);
-        }
-
-        if (httpRes) {
-            json respJson;
-            respJson["Body"] = httpRes->body;
-            respJson["StatusCode"] = httpRes->status;
-            respJson["Success"] = (httpRes->status >= 200 && httpRes->status < 300);
-            for (auto& headerItem : httpRes->headers) {
-                respJson["Headers"][headerItem.first] = headerItem.second;
+        // Simple URL Parsing: scheme://host[:port][/path]
+        std::string scheme, host, path = "/";
+        size_t schemeEnd = fullUrl.find("://");
+        if (schemeEnd != std::string::npos) {
+            scheme = fullUrl.substr(0, schemeEnd + 3);
+            std::string afterScheme = fullUrl.substr(schemeEnd + 3);
+            size_t pathStart = afterScheme.find("/");
+            if (pathStart != std::string::npos) {
+                host = afterScheme.substr(0, pathStart);
+                path = afterScheme.substr(pathStart);
+            } else {
+                host = afterScheme;
             }
-            return respJson.dump();
+        } else {
+            return "{\"Success\":false, \"StatusCode\":400, \"Body\":\"Invalid URL Scheme\"}";
         }
-        return "{}";
+
+        auto cli = std::make_unique<httplib::Client>(scheme + host);
+        cli->set_follow_location(true);
+        cli->set_connection_timeout(10);
+        cli->set_read_timeout(15);
+
+        httplib::Headers headers;
+        if (settings.contains("Headers")) {
+            for (auto& [k, v] : settings["Headers"].items()) {
+                if (v.is_string()) headers.insert({ k, v.get<std::string>() });
+            }
+        }
+        
+        if (headers.find("User-Agent") == headers.end()) {
+            headers.insert({ "User-Agent", "CravexBase/0.1.1" });
+        }
+
+        httplib::Result res;
+        if (method == "GET") {
+            res = cli->Get(path.c_str(), headers);
+        } else if (method == "POST") {
+            res = cli->Post(path.c_str(), headers, body, settings.value("ContentType", "text/plain"));
+        } else if (method == "PUT") {
+            res = cli->Put(path.c_str(), headers, body, settings.value("ContentType", "text/plain"));
+        } else if (method == "PATCH") {
+            res = cli->Patch(path.c_str(), headers, body, settings.value("ContentType", "text/plain"));
+        } else if (method == "DELETE") {
+            res = cli->Delete(path.c_str(), headers);
+        } else {
+            return "{\"Success\":false, \"StatusCode\":405, \"Body\":\"Unsupported Method\"}";
+        }
+
+        if (res) {
+            json out;
+            out["StatusCode"] = res->status;
+            out["Body"] = res->body;
+            out["Success"] = (res->status >= 200 && res->status < 300);
+            
+            json h = json::object();
+            for (auto& it : res->headers) {
+                h[it.first] = it.second;
+            }
+            out["Headers"] = h;
+            return out.dump();
+        } else {
+            auto err = res.error();
+            std::string errMsg = "Unknown Error";
+            if (err == httplib::Error::Connection) errMsg = "Connection Error";
+            else if (err == httplib::Error::SSLServerVerification) errMsg = "SSL Verification Error";
+            else if (err == httplib::Error::Read) errMsg = "Read Timeout";
+
+            return "{\"Success\":false, \"StatusCode\":500, \"Body\":\"Request Failed: " + errMsg + "\"}";
+        }
     }
 
     inline std::string handleIsRbxActive(const std::string& data, const json& settings, DWORD pid) {

@@ -116,6 +116,12 @@ env.getscriptbytecode = function(scr)
     val.Name = httpSvc:GenerateGUID(false); val.Value = scr
     local bc = bridgeReq("getscriptbytecode", "", {cn = val.Name})
     val:Destroy()
+    if bc:sub(1, 5) == "null:" then
+        warn("[Cravex] getscriptbytecode failed: " .. bc:sub(6))
+        return nil
+    elseif bc == "null" or bc == "" then
+        return nil
+    end
     return bc
 end
 
@@ -124,23 +130,31 @@ env.loadstring = function(src, chunk)
     if type(src) ~= "string" then return nil, "Expected string" end
     chunk = chunk or "loadstring"
 
-    local bc = env.compile("return{[ [["..chunk.."]] ]=function(...) " .. src .. "\nend}", true)
-    if type(bc) ~= "string" or #bc < 1 then return nil, "Compile error" end
+    local bc = env.compile("return function(...) " .. src .. "\nend", true)
+    if type(bc) ~= "string" or #bc < 1 then 
+        warn("[Cravex] loadstring compilation failed for " .. chunk .. ": " .. tostring(bc))
+        return nil, "Compile error: " .. tostring(bc) 
+    end
     
     local firstByte = string.byte(bc, 1)
-    if not firstByte or firstByte > 15 then -- Bytecode magic version is low ASCII.
+    if not firstByte or firstByte > 15 then
+        warn("[Cravex] loadstring check failed: " .. tostring(bc))
         return nil, bc
     end
     
     env.setscriptbytecode(scriptTarget, bc)
     local success, res = pcall(function() return debug.loadmodule(scriptTarget) end)
-    if not success or type(res) ~= "function" then return nil, bc end
+    if not success or type(res) ~= "function" then 
+        warn("[Cravex] loadstring LoadModule failed: " .. tostring(res))
+        return nil, "LoadModule failed: " .. tostring(res) 
+    end
     
     local success2, res2 = pcall(function() return res() end)
-    if success2 and typeof(res2) == "table" and res2[chunk] then
-        return setfenv(res2[chunk], env)
+    if success2 and type(res2) == "function" then
+        return setfenv(res2, env)
     end
-    return nil, "Load failed"
+    warn("[Cravex] loadstring execution failed: " .. tostring(res2))
+    return nil, "Chunk execution failed: " .. tostring(res2)
 end
 
 -- Request & Crypt
@@ -172,7 +186,11 @@ env.HttpGet = function(...)
     local url = type(args[1]) == "string" and args[1] or args[2]
     if type(url) ~= "string" then return "" end
     local resp = env.request({Url = url})
-    return resp and resp.Body or ""
+    if not resp.Success then
+        warn("[Cravex] HttpGet failed for " .. url .. ": " .. tostring(resp.Body))
+        return ""
+    end
+    return resp.Body or ""
 end
 env.HttpPost = function(...)
     local args = {...}
@@ -240,9 +258,9 @@ end
 local blockedExts = { ".7z", ".ade", ".adp", ".apk", ".appx", ".appxbundle", ".application", ".bat", ".cab", ".chm", ".cmd", ".com", ".cpl", ".csh", ".dll", ".dmg", ".docm", ".drv", ".exe", ".gadget", ".gz", ".hta", ".img", ".inf", ".ins", ".isp", ".iso", ".jar", ".js", ".jse", ".ksh", ".lib", ".lnk", ".mde", ".msc", ".msh", ".msh1", ".msh2", ".mshxml", ".msi", ".msp", ".mst", ".nsh", ".ocx", ".php", ".pif", ".pl", ".pptm", ".ps", ".ps1", ".ps1xml", ".ps2", ".ps2xml", ".psc1", ".psc2", ".psd1", ".psm1", ".py", ".pyw", ".rar", ".rb", ".rbw", ".reg", ".scf", ".scr", ".sct", ".sh", ".shb", ".sys", ".tar", ".url", ".vb", ".vbe", ".vbs", ".vxd", ".ws", ".wsc", ".wsf", ".wsh", ".xlsm", ".xml", ".zip" }
 local function hasBlockedExt(p)
     if type(p) ~= "string" then return false end
-    p = p:lower()
+    p = p:lower():gsub("[%s%z]+$", "")
     for _, ext in ipairs(blockedExts) do
-        if p:sub(-#ext) == ext then return true end
+        if #p >= #ext and p:sub(-#ext) == ext then return true end
     end
     return false
 end
@@ -335,6 +353,49 @@ end
 env.setclipboard = function(data) bridgeReq("setclipboard", tostring(data)) end
 env.toclipboard = env.setclipboard
 env.getclipboard = function() return bridgeReq("getclipboard") end
+
+-- decompile // uses konstant decompiler for this
+local API: string = "http://api.plusgiant5.com"
+
+local last_call = 0
+local function call(konstantType: string, scriptPath: Script | ModuleScript | LocalScript): string
+    local success: boolean, bytecode: string = pcall(getscriptbytecode, scriptPath)
+
+    if (not success) then
+        return `-- Failed to get script bytecode, error:\n\n--[[\n{bytecode}\n--]]`
+    end
+
+    local time_elapsed = os.clock() - last_call
+    if time_elapsed <= .5 then
+        task.wait(.5 - time_elapsed)
+    end
+    local httpResult = request({
+        Url = API .. konstantType,
+        Body = bytecode,
+        Method = "POST",
+        Headers = {
+            ["Content-Type"] = "text/plain"
+        },
+    })
+    last_call = os.clock()
+    
+    if (httpResult.StatusCode ~= 200) then
+        return `-- Error occured while requesting the API, error:\n\n--[[\n{httpResult.Body}\n--]]`
+    else
+        return httpResult.Body
+    end
+end
+
+local function decompile(scriptPath: Script | ModuleScript | LocalScript): string
+    return call("/konstant/decompile", scriptPath)
+end
+
+local function disassemble(scriptPath: Script | ModuleScript | LocalScript): string
+    return call("/konstant/disassemble", scriptPath)
+end
+
+env.decompile = decompile
+env.disassemble = disassemble
 
 -- listener loop
 bridgeReq("listen")

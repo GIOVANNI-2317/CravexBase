@@ -49,10 +49,15 @@ namespace files {
         fs::path target = resolvePath(settings.value("f", ""));
         if (target.empty()) return "false";
 
-        std::string ext = target.extension().string();
-        std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+        std::string pathStr = target.string();
+        pathStr.erase(pathStr.find_last_not_of(" \n\r\t\0") + 1);
+        std::string lowerPath = pathStr;
+        std::transform(lowerPath.begin(), lowerPath.end(), lowerPath.begin(), ::tolower);
+
         const std::vector<std::string> blocked = { ".7z", ".ade", ".adp", ".apk", ".appx", ".appxbundle", ".application", ".bat", ".cab", ".chm", ".cmd", ".com", ".cpl", ".csh", ".dll", ".dmg", ".docm", ".drv", ".exe", ".gadget", ".gz", ".hta", ".img", ".inf", ".ins", ".isp", ".iso", ".jar", ".js", ".jse", ".ksh", ".lib", ".lnk", ".mde", ".msc", ".msh", ".msh1", ".msh2", ".mshxml", ".msi", ".msp", ".mst", ".nsh", ".ocx", ".php", ".pif", ".pl", ".pptm", ".ps", ".ps1", ".ps1xml", ".ps2", ".ps2xml", ".psc1", ".psc2", ".psd1", ".psm1", ".py", ".pyw", ".rar", ".rb", ".rbw", ".reg", ".scf", ".scr", ".sct", ".sh", ".shb", ".sys", ".tar", ".url", ".vb", ".vbe", ".vbs", ".vxd", ".ws", ".wsc", ".wsf", ".wsh", ".xlsm", ".xml", ".zip" };
-        if (std::find(blocked.begin(), blocked.end(), ext) != blocked.end()) return "false";
+        for (const auto& bExt : blocked) {
+            if (lowerPath.size() >= bExt.size() && lowerPath.compare(lowerPath.size() - bExt.size(), bExt.size(), bExt) == 0) return "false";
+        }
 
         if (target.has_parent_path()) {
             fs::create_directories(target.parent_path());
@@ -73,10 +78,15 @@ namespace files {
         fs::path target = resolvePath(settings.value("f", ""));
         if (target.empty()) return "false";
 
-        std::string ext = target.extension().string();
-        std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+        std::string pathStr = target.string();
+        pathStr.erase(pathStr.find_last_not_of(" \n\r\t\0") + 1);
+        std::string lowerPath = pathStr;
+        std::transform(lowerPath.begin(), lowerPath.end(), lowerPath.begin(), ::tolower);
+
         const std::vector<std::string> blocked = { ".7z", ".ade", ".adp", ".apk", ".appx", ".appxbundle", ".application", ".bat", ".cab", ".chm", ".cmd", ".com", ".cpl", ".csh", ".dll", ".dmg", ".docm", ".drv", ".exe", ".gadget", ".gz", ".hta", ".img", ".inf", ".ins", ".isp", ".iso", ".jar", ".js", ".jse", ".ksh", ".lib", ".lnk", ".mde", ".msc", ".msh", ".msh1", ".msh2", ".mshxml", ".msi", ".msp", ".mst", ".nsh", ".ocx", ".php", ".pif", ".pl", ".pptm", ".ps", ".ps1", ".ps1xml", ".ps2", ".ps2xml", ".psc1", ".psc2", ".psd1", ".psm1", ".py", ".pyw", ".rar", ".rb", ".rbw", ".reg", ".scf", ".scr", ".sct", ".sh", ".shb", ".sys", ".tar", ".url", ".vb", ".vbe", ".vbs", ".vxd", ".ws", ".wsc", ".wsf", ".wsh", ".xlsm", ".xml", ".zip" };
-        if (std::find(blocked.begin(), blocked.end(), ext) != blocked.end()) return "false";
+        for (const auto& bExt : blocked) {
+            if (lowerPath.size() >= bExt.size() && lowerPath.compare(lowerPath.size() - bExt.size(), bExt.size(), bExt) == 0) return "false";
+        }
 
         if (target.has_parent_path()) {
             fs::create_directories(target.parent_path());
