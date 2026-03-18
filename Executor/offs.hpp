@@ -2,9 +2,9 @@
 #include <Windows.h>
 
 namespace offs {
-    inline constexpr uintptr_t loadModule = 0x78FAD38;
+    inline constexpr uintptr_t loadModule = 0x7B61808;
 
-    inline constexpr uintptr_t fakeDataModelPtr = 0x7F6C228;
+    inline constexpr uintptr_t fakeDataModelPtr = 0x81D3EA8;
     inline constexpr uintptr_t fakeDataModelToDataModel = 0x1C0;
 
     inline constexpr uintptr_t children = 0x70;

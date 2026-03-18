@@ -42,15 +42,6 @@ void mainLogic() {
 
             attachedPids.insert(pid);
 			std::thread(tpHandler::handlerStart, pid, base, bc, sz).detach();
-
-            /*if (dm.getName() == "Ugc") {
-                attachedPids.insert(pid);
-                std::thread(tpHandler::ugcAttachThread, pid, base, bc, sz).detach();
-            }
-            else {
-                attachedPids.insert(pid);
-                std::thread(tpHandler::attachThread, pid, base, bc, sz).detach();
-            }*/
         }
         Sleep(1000);
     }

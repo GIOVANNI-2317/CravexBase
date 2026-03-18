@@ -9,23 +9,65 @@ local clockFunc = os and os.clock or tick
 
 local baseDir = Instance.new("Folder", coreGui); baseDir.Name = "CravexBase"
 local pointDir = Instance.new("Folder", baseDir); pointDir.Name = "Pointer"
+
+local lvlBindthing = Instance.new("BindableEvent")
+lvlBindthing.Event:Connect(function() end)
+local idPtr = Instance.new("ObjectValue")
+idPtr.Name = "lvlBindthing"
+idPtr.Value = lvlBindthing
+idPtr.Parent = pointDir
+
 local apiAddr = "http://localhost:6767"
 local procId = "-$-crvx-procid-$-"
 
+local bridgeQueue = {}
+local bridgeResults = {}
+
+safeSpawn(function()
+    while true do
+        for reqId, req in pairs(bridgeQueue) do
+            bridgeQueue[reqId] = nil
+            safeSpawn(function()
+                local response, startClock = nil, clockFunc()
+                local reqData = req.typ .. "\n" .. procId .. "\n" .. httpSvc:JSONEncode(req.settings or {}) .. "\n" .. (req.data or "")
+                
+                pcall(function()
+                    httpSvc:RequestInternal({
+                        Url = apiAddr .. "/handle",
+                        Method = "POST",
+                        Body = reqData,
+                        Headers = {["Content-Type"] = "text/plain"}
+                    }):Start(function(success, body) 
+                        response = {Success = success, Body = body.Body}
+                    end)
+                end)
+                
+                while not response and clockFunc() - startClock < 5 do safeWait() end
+                bridgeResults[reqId] = response and response.Body or ""
+            end)
+        end
+        safeWait()
+    end
+end)
+
 local function bridgeReq(typ, data, settings)
-    local response, startClock = nil, clockFunc()
-    httpSvc:RequestInternal({
-        Url = apiAddr .. "/handle",
-        Method = "POST",
-        Body = typ .. "\n" .. procId .. "\n" .. httpSvc:JSONEncode(settings or {}) .. "\n" .. (data or ""),
-        Headers = {["Content-Type"] = "text/plain"}
-    }):Start(function(success, body) response = body; response.Success = success end)
-    while not response and clockFunc() - startClock < 5 do safeWait() end
-    return response and response.Body or ""
+    local reqId = httpSvc:GenerateGUID(false)
+    bridgeQueue[reqId] = {typ = typ, data = data, settings = settings}
+    while bridgeResults[reqId] == nil do safeWait() end
+    local res = bridgeResults[reqId]
+    bridgeResults[reqId] = nil
+    return res
 end
 
 local env = getfenv(function() end)
 env.getgenv = function() return env end
+
+local uiHolder = Instance.new("ScreenGui")
+uiHolder.Name = httpSvc:GenerateGUID(false)
+uiHolder.IgnoreGuiInset = true
+uiHolder.DisplayOrder = 2147483647
+pcall(function() uiHolder.Parent = coreGui end)
+env.gethui = function() return uiHolder end
 
 -- input
 env.isrbxactive = function() return bridgeReq("isrbxactive") == "true" end
@@ -148,30 +190,30 @@ env.getscriptbytecode = function(scr)
     return bc
 end
 
-env.getscripts = function()
-    local scripts = {}
-    local coreGui = game:GetService("CoreGui")
-    for _, v in ipairs(game:GetDescendants()) do
-        if (v:IsA("LocalScript") or v:IsA("ModuleScript") or v:IsA("Script")) and not v:IsA("CoreScript") then
-            if not v:IsDescendantOf(coreGui) then
-                table.insert(scripts, v)
-            end
+env.getnilinstances = function()
+    local cached = env.getinstances()
+    local res = {}
+    for i = 1, #cached do
+        local obj = cached[i]
+        if not obj.Parent then
+            table.insert(res, obj)
         end
     end
-    return scripts
+    return res
 end
 
-env.getloadedmodules = function()
-    local modules = {}
-    local coreGui = game:GetService("CoreGui")
-    for _, v in ipairs(game:GetDescendants()) do
-        if v:IsA("ModuleScript") and not v:IsA("CoreScript") then
-            if not v:IsDescendantOf(coreGui) then
-                table.insert(modules, v)
+env.getscripts = function()
+    local res = {}
+    local cg = game:GetService("CoreGui")
+    local cp = game:GetService("CorePackages")
+    for _, s in ipairs(env.getinstances()) do
+        if (s:IsA("LocalScript") or s:IsA("ModuleScript") or s:IsA("Script")) and not s:IsA("CoreScript") then
+            if not s:IsDescendantOf(cg) and not s:IsDescendantOf(cp) then
+                table.insert(res, s)
             end
         end
     end
-    return modules
+    return res
 end
 
 local scriptTarget = coreGui:FindFirstChild("RobloxGui").Modules.Common:FindFirstChild("Constants") or coreGui:FindFirstChild("RobloxGui").Modules.Common:FindFirstChild("CommonUtil")
@@ -221,10 +263,23 @@ env.getscripthash = function(scr)
 end
 
 env.getrenv = function() return _G end
-env.getreg = function() return debug.getregistry() end
+env.getreg = function() return debug.getregistry() end -- not working btw
 
 _G.loadstring = env.loadstring
 getfenv(0).loadstring = env.loadstring
+
+env.getinstances = function()
+    local insts = {}
+    local reg = env.getreg()
+    for _, v in pairs(reg) do
+        if typeof(v) == "Instance" then
+            table.insert(insts, v)
+        end
+    end
+    return insts
+end
+
+
 
 -- Request & Crypt
 env.request = function(options)
@@ -243,12 +298,32 @@ env.http_request = env.request
 env.crypt = {}
 env.crypt.base64encode = function(data) return bridgeReq("crypt.base64encode", data) end
 env.crypt.base64decode = function(data) return bridgeReq("crypt.base64decode", data) end
-env.base64_encode = env.crypt.base64encode
-env.base64_decode = env.crypt.base64decode
 env.crypt.base64 = {
     encode = env.crypt.base64encode,
     decode = env.crypt.base64decode
 }
+env.crypt.generatekey = function(len)
+    local key = ''
+    local x = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+    for i = 1, len or 32 do local n = math.random(1, #x) key = key .. x:sub(n, n) end
+    return env.crypt.base64encode(key)
+end
+env.crypt.generatebytes = env.crypt.generatekey
+env.crypt.random = env.crypt.generatekey
+env.crypt.encrypt = function(data, key)
+    local result = {}
+    data, key = tostring(data), tostring(key)
+    for i = 1, #data do
+        local byte = string.byte(data, i)
+        local keyByte = string.byte(key, (i - 1) % #key + 1)
+        table.insert(result, string.char(bit32.bxor(byte, keyByte)))
+    end
+    return table.concat(result), key
+end
+env.crypt.decrypt = env.crypt.encrypt
+
+env.base64_encode = env.crypt.base64encode
+env.base64_decode = env.crypt.base64decode
 env.crypt.lz4compress = function(data) 
     local b64 = bridgeReq("crypt.lz4compress", tostring(data))
     return env.crypt.base64decode(b64)
@@ -278,6 +353,10 @@ env.HttpPost = function(...)
     if type(url) ~= "string" then return "" end
     local resp = env.request({Url = url, Method = "POST", Body = type(body) == "string" and body or ""})
     return resp and resp.Body or ""
+end
+
+env.GetObjects = function(asset)
+    return { game:GetService("InsertService"):LoadLocalAsset(asset) }
 end
 
 -- game proxy
@@ -418,7 +497,13 @@ env.newcclosure = function(f)
     cclosureRegistry[wrapped] = true
     return wrapped
 end
-env.clonefunction = function(f) return function(...) return f(...) end end
+env.newlclosure = function(f)
+    return function(...) return f(...) end
+end
+env.clonefunction = function(f) 
+    if env.iscclosure(f) then return env.newcclosure(f) end
+    return env.newlclosure(f)
+end
 env.hookfunction = function(f, h) return f end
 env.getscriptclosure = function(s) return function() return require(s) end end
 env.getscriptfunction = env.getscriptclosure
@@ -436,25 +521,31 @@ env.fireclickdetector = function(detector, distance, event)
     local oldCanCollide = part.CanCollide
     local oldMaxDist = detector.MaxActivationDistance
     
-    part.Transparency = 1
-    part.CanCollide = false
     detector.MaxActivationDistance = math.huge
     part.CFrame = cam.CFrame * CFrame.new(0, 0, -1.5)
     
     local vu = game:GetService("VirtualUser")
     local center = cam.ViewportSize / 2
-    if event == "RightMouseClick" then
-        vu:ClickButton2(center)
-    elseif event == "MouseHoverEnter" then
-        vu:MoveMouse(center, cam.CFrame)
-    elseif event == "MouseHoverLeave" then
-        vu:MoveMouse(Vector2.new(0,0), cam.CFrame)
-    else
-        vu:ClickButton1(center)
-    end
     
     task.spawn(function()
-        task.wait()
+        task.wait(0.05) -- Wait for physics/render queue to acknowledge the CFrame change
+        
+        if event == "RightMouseClick" then
+            vu:Button2Down(center)
+            task.wait()
+            vu:Button2Up(center)
+        elseif event == "MouseHoverEnter" then
+            vu:MoveMouse(center, cam.CFrame)
+        elseif event == "MouseHoverLeave" then
+            vu:MoveMouse(Vector2.new(0,0), cam.CFrame)
+        else
+            vu:Button1Down(center)
+            task.wait()
+            vu:Button1Up(center)
+        end
+        
+        task.wait(0.05)
+        
         part.CFrame = oldCFrame
         part.Transparency = oldTrans
         part.CanCollide = oldCanCollide
@@ -655,30 +746,47 @@ env.Drawing = {
     Font = { UI = 0, System = 1, Plex = 2, Monospace = 3 }
 }
 
-local clonerefs = {}
+local pMap = setmetatable({}, { __mode = "k" })
+
 env.cloneref = function(obj)
+    if typeof(obj) ~= "Instance" then return obj end
+    
     local proxy = newproxy(true)
-    local meta = getmetatable(proxy)
-    meta.__index = function(t, n)
-        local v = obj[n]
-        if typeof(v) == "function" then
-            return function(self, ...)
-                if self == t then self = obj end
-                return v(self, ...)
+    local m = getmetatable(proxy)
+    
+    m.__index = function(_, k)
+        local val = obj[k]
+        if type(val) == "function" then
+            return function(s, ...)
+                return val(s == proxy and obj or s, ...)
             end
-        else
-            return v
         end
+        return val
     end
-    meta.__newindex = function(_, n, v) obj[n] = v end
-    meta.__tostring = function() return tostring(obj) end
-    meta.__metatable = getmetatable(obj)
-    clonerefs[proxy] = obj
+    
+    m.__namecall = function(_, ...)
+        local method = env.getnamecallmethod()
+        return obj[method](obj, ...)
+    end
+    
+    m.__newindex = function(_, k, v)
+        obj[k] = v
+    end
+    
+    m.__tostring = function()
+        return tostring(obj)
+    end
+    
+    m.__metatable = "The metatable is locked"
+    
+    pMap[proxy] = obj
     return proxy
 end
 
 env.compareinstances = function(p1, p2)
-    return (clonerefs[p1] or p1) == (clonerefs[p2] or p2) 
+    local r1 = pMap[p1] or p1
+    local r2 = pMap[p2] or p2
+    return r1 == r2 
 end
 
 -- clipboard
@@ -750,7 +858,7 @@ safeSpawn(function()
                 end
             end)
         end
-        safeWait()
+        safeWait(0.1)
     end
 end)
 
