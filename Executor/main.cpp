@@ -87,7 +87,7 @@ extern "C" __declspec(dllexport) void execute(const wchar_t* input) {
 }
 
 extern "C" __declspec(dllexport) void detach() {
-    execute(L"_DETACH_");
+    execute(L"_DETACH_"); // temp for now
     attachedPids.clear();
     shouldAttach = false;
 }
