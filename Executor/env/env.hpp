@@ -13,6 +13,7 @@
 #include "libs/scripts.hpp"
 #include "libs/utils.hpp"
 #include "libs/websockets.hpp"
+#include "libs/random.hpp"
 
 inline void registerAllEnvFunctions() {
     misc::init();
@@ -28,4 +29,5 @@ inline void registerAllEnvFunctions() {
     scripts::init();
     utils::init();
     ws::init();
+    random::init();
 }

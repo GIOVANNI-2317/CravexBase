@@ -3,55 +3,40 @@
 #include <Windows.h>
 #include <TlHelp32.h>
 #include <cstdint>
+#include "MemoryManager.h"
 
 #define NT_SUCCESS(x) (((NTSTATUS)(x)) >= 0)
 
-typedef NTSTATUS(NTAPI* pNtRVM)(HANDLE, PVOID, PVOID, SIZE_T, PSIZE_T);
-typedef NTSTATUS(NTAPI* pNtWVM)(HANDLE, PVOID, PVOID, SIZE_T, PSIZE_T);
-
-inline pNtRVM fnRead = nullptr;
-inline pNtWVM fnWrite = nullptr;
-
-inline void setupSystemFunctions() {
-    if (!fnRead) {
-        if (HMODULE mod = GetModuleHandleW(L"ntdll.dll")) {
-            fnRead = reinterpret_cast<pNtRVM>(GetProcAddress(mod, "NtReadVirtualMemory"));
-            fnWrite = reinterpret_cast<pNtWVM>(GetProcAddress(mod, "NtWriteVirtualMemory"));
+namespace mem {
+    inline void ensureAttached(DWORD procId) {
+        if (Memory->getProcessId() != procId || !Memory->getProcessHandle() || Memory->getProcessHandle() == INVALID_HANDLE_VALUE) {
+            if (HANDLE h = OpenProcess(PROCESS_ALL_ACCESS, FALSE, procId)) {
+                Memory->setProcessId(procId);
+                Memory->setProcessHandle(h);
+            }
         }
     }
-}
 
-namespace mem {
     inline void readBytes(uintptr_t target, void* buffer, size_t len, DWORD procId) {
-        setupSystemFunctions();
-        if (!fnRead) return;
-        if (HANDLE procHandle = OpenProcess(PROCESS_ALL_ACCESS, FALSE, procId)) {
-            SIZE_T outRead = 0;
-            fnRead(procHandle, reinterpret_cast<PVOID>(target), buffer, len, &outRead);
-            CloseHandle(procHandle);
-        }
+        ensureAttached(procId);
+        Memory->readRaw(target, buffer, len);
     }
 
     inline void writeBytes(uintptr_t target, const void* buffer, size_t len, DWORD procId) {
-        setupSystemFunctions();
-        if (!fnWrite) return;
-        if (HANDLE procHandle = OpenProcess(PROCESS_ALL_ACCESS, FALSE, procId)) {
-            SIZE_T outWritten = 0;
-            fnWrite(procHandle, reinterpret_cast<PVOID>(target), const_cast<PVOID>(buffer), len, &outWritten);
-            CloseHandle(procHandle);
-        }
+        ensureAttached(procId);
+        Memory->writeRaw(target, buffer, len);
     }
 
     template <typename T>
     inline T read(uintptr_t target, DWORD procId) {
-        T result{};
-        readBytes(target, &result, sizeof(T), procId);
-        return result;
+        ensureAttached(procId);
+        return Memory->read<T>(target);
     }
 
     template <typename T>
     inline void write(uintptr_t target, T value, DWORD procId) {
-        writeBytes(target, &value, sizeof(T), procId);
+        ensureAttached(procId);
+        Memory->write<T>(target, value);
     }
 }
 

@@ -33,6 +33,7 @@
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ImportGroup Label="ExtensionSettings">
+    <Import Project="$(VCTargetsPath)\BuildCustomizations\masm.props" />
   </ImportGroup>
   <ImportGroup Label="Shared">
   </ImportGroup>
@@ -76,6 +77,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="core\MemoryManager.cpp" />
     <ClCompile Include="deps/Luau/Ast.cpp" />
     <ClCompile Include="deps/Luau/BuiltinFolding.cpp" />
     <ClCompile Include="deps/Luau/Builtins.cpp" />
@@ -111,18 +113,24 @@
     <ClInclude Include="env\libs\instances.hpp" />
     <ClInclude Include="env\libs\metatable.hpp" />
     <ClInclude Include="env\libs\network.hpp" />
+    <ClInclude Include="env\libs\random.hpp" />
     <ClInclude Include="env\libs\scripts.hpp" />
     <ClInclude Include="env\libs\utils.hpp" />
     <ClInclude Include="env\libs\websockets.hpp" />
     <ClInclude Include="offs.hpp" />
     <ClInclude Include="core\sys.hpp" />
     <ClInclude Include="core\inst.hpp" />
-    <ClInclude Include="core/code.hpp" />
+    <ClInclude Include="core\code.hpp" />
+    <ClInclude Include="core\MemoryManager.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <MASM Include="core\Luck.asm" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="res.rc" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
+    <Import Project="$(VCTargetsPath)\BuildCustomizations\masm.targets" />
   </ImportGroup>
 </Project>

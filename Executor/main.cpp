@@ -1,5 +1,6 @@
 #include "env/bridge.hpp"
 #include "env/env.hpp"
+#include "core/MemoryManager.h"
 #include <thread>
 #include <iostream>
 #include <set>
@@ -7,22 +8,7 @@
 static std::set<DWORD> attachedPids;
 static bool shouldAttach = true;
 
-std::string getResource(int id, DWORD pid) {
-    HMODULE h = NULL;
-    GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-        (LPCSTR)&getResource, &h);
-    HRSRC res = FindResourceA(h, MAKEINTRESOURCEA(id), MAKEINTRESOURCEA(10));
-    if (!res) return "";
-    HGLOBAL load = LoadResource(h, res);
-    if (!load) return "";
-    void* data = LockResource(load);
-    if (!data) return "";
-    DWORD sz = SizeofResource(h, res);
-    std::string s((char*)data, sz);
-    size_t p = s.find("-$-crvx-procid-$-");
-    if (p != std::string::npos) s.replace(p, 17, std::to_string(pid));
-    return s;
-}
+// getResource removed (now in bridge.hpp)
 
 void mainLogic() {
     std::thread(startBridge).detach();
@@ -31,31 +17,38 @@ void mainLogic() {
             Sleep(1000);
             continue;
         }
-        for (DWORD pid : proc::getPids()) {
-            if (attachedPids.count(pid)) continue;
-            uintptr_t base = proc::getBase(pid);
-            inst dm = getDm(base, pid);
+        
+        // Use the custom MemoryManager class to attach
+        if (Memory->attachToProcess("RobloxPlayerBeta.exe")) {
+            DWORD pid = Memory->getProcessId();
+            if (attachedPids.count(pid) == 0) {
+                uintptr_t base = Memory->getBaseAddress();
+                inst dm = getDm(base, pid);
 
-            size_t sz;
-            std::string l = getResource(1, pid);
-            auto bc = code::sign(code::compile(l), sz);
+                size_t sz;
+                std::string l = getResource(1, pid);
+                auto bc = code::sign(code::compile(l), sz);
 
-            attachedPids.insert(pid);
-			std::thread(tpHandler::handlerStart, pid, base, bc, sz).detach();
+                attachedPids.insert(pid);
+                std::thread(tpHandler::handlerStart, pid, base, bc, sz).detach();
+            }
         }
+        
         Sleep(1000);
     }
 }
 
 extern "C" __declspec(dllexport) bool isAttached() {
     if (attachedPids.empty()) return false;
-    for (DWORD pid : attachedPids) {
-        uintptr_t base = proc::getBase(pid);
-        if (!base) continue;
+    
+    DWORD pid = Memory->getProcessId();
+    if (attachedPids.count(pid)) {
+        uintptr_t base = Memory->getBaseAddress();
+        if (!base) return false;
         inst dm = getDm(base, pid);
-        if (!dm.getAddr()) continue;
+        if (!dm.getAddr()) return false;
         inst cg = dm.findChild("CoreGui");
-        if (cg.getAddr() && cg.findChild("CravexBase").getAddr() != 0) {
+        if (cg.getAddr() && cg.findChild("Cravex").getAddr() != 0) {
             return true;
         }
     }
@@ -71,6 +64,14 @@ extern "C" __declspec(dllexport) void attach(bool debug) {
             AllocConsole();
             FILE* f;
             freopen_s(&f, "CONOUT$", "w", stdout);
+            
+            // Enable ANSI colors
+            HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+            DWORD dwMode = 0;
+            if (GetConsoleMode(hOut, &dwMode)) {
+                dwMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+                SetConsoleMode(hOut, dwMode);
+            }
         }
         std::thread(mainLogic).detach();
     }

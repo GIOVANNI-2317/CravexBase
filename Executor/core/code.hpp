@@ -9,6 +9,9 @@
 #include "Luau/BytecodeUtils.h"
 #include "globals.hpp"
 
+#include <chrono>
+#include <iomanip>
+
 extern "C" {
 #include "blake3/blake3.h"
 }
@@ -119,9 +122,11 @@ namespace stuff
 {
     bool inGame(uintptr_t base, DWORD pid)
     {
-        inst dm = inst(0, pid);
-        dm = getDm(base, pid);
-        return dm.getName() == "Ugc";
+        inst dm = getDm(base, pid);
+        uintptr_t dmAddr = dm.getAddr();
+        // A session is stable if we have a non-zero DataModel address
+        // Even if we don't have the correct name yet (loading game), we shouldn't lose the session
+        return (dmAddr != 0 && dmAddr != 0xffffffffffffffff);
     }
 }
 
@@ -129,24 +134,33 @@ namespace tpHandler
 {
     void attachThread(DWORD pid, uintptr_t base, std::vector<char> bc, size_t sz) {
         inst dm(0, pid);
+        auto last_print = std::chrono::steady_clock::now();
         while (true) {
             dm = getDm(base, pid);
-            if (dm.getName() == "Ugc")
+            if (dm.getName() == "Ugc" || dm.getName() == "Game")
             {
-                std::cout << stuff::inGame(base, pid) << std::endl; // 1 == true -> in game
-                std::cout << "Datamodel found at " << std::hex << dm.getAddr() << std::endl;
+                std::cout << " \033[1;32m[+]\033[0m Found DataModel at " << std::hex << std::uppercase << dm.getAddr() << std::endl;
                 globals::lastDm = dm;
                 break;
             }
-            std::cout << "Datamodel name: " << dm.getName() << std::endl;
-            std::cout << stuff::inGame(base, pid) << std::endl; // 0 == false -> not in game
-            Sleep(250);
+
+            auto now = std::chrono::steady_clock::now();
+            if (std::chrono::duration_cast<std::chrono::seconds>(now - last_print).count() >= 3) {
+                std::cout << " \033[1;33m[*]\033[0m Waiting for valid Game DataModel... (Current: " << (dm.getName().empty() ? "Loading..." : dm.getName()) << ")" << std::endl;
+                last_print = now;
+            }
+            Sleep(500);
         }
         if (globals::lastDm.getAddr() != dm.getAddr())
         {
             gameAtd = false;
             globals::lastDm = dm;
         }
+        
+        // Increased delay to ensure Roblox UI and Internal structures are fully ready
+        std::cout << " \033[1;34m[*]\033[0m Stability delay active... (3s)" << std::endl;
+        Sleep(3000); 
+
         inst cg = dm.findChild("CoreGui");
         inst rg = cg.findChild("RobloxGui");
         inst ms = rg.findChild("Modules");
@@ -154,12 +168,16 @@ namespace tpHandler
 
         mem::write<BYTE>(base + offs::loadModule, 1, pid);
         auto rev = im.setCode(bc, sz);
-        cg.waitChild("CravexBase");
+        cg.waitChild("Cravex");
         rev();
     }
 
     void ugcAttachThread(DWORD pid, uintptr_t base, std::vector<char> bc, size_t sz) {
         inst dm = getDm(base, pid);
+        
+        // Stability delay for UGC path as well
+        Sleep(2000);
+
         inst cg = dm.findChild("CoreGui");
         inst rg = cg.findChild("RobloxGui");
         inst ms = rg.findChild("Modules");
@@ -173,8 +191,7 @@ namespace tpHandler
         inst cm2 = cm1.findChild("CollisionMatchers2D");
         inst jst = cm2.findChild("Jest");
 
-        std::cout << stuff::inGame(base, pid) << std::endl; // 1 == true -> in game
-        std::cout << "Datamodel found at " << std::hex << dm.getAddr() << std::endl;
+        std::cout << " \033[1;32m[+]\033[0m In-Game DataModel found at " << std::hex << std::uppercase << dm.getAddr() << std::endl;
 
         mem::write<BYTE>(base + offs::loadModule, 1, pid);
         mem::write<uintptr_t>(plm.getAddr() + 0x8, jst.getAddr(), pid);
@@ -189,7 +206,7 @@ namespace tpHandler
         keybd_event(VK_ESCAPE, MapVirtualKey(VK_ESCAPE, 0), KEYEVENTF_SCANCODE, 0);
         keybd_event(VK_ESCAPE, MapVirtualKey(VK_ESCAPE, 0), KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP, 0);
 
-        cg.waitChild("CravexBase");
+        cg.waitChild("Cravex");
 
         keybd_event(VK_ESCAPE, MapVirtualKey(VK_ESCAPE, 0), KEYEVENTF_SCANCODE, 0);
         keybd_event(VK_ESCAPE, MapVirtualKey(VK_ESCAPE, 0), KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP, 0);
@@ -201,39 +218,46 @@ namespace tpHandler
 
     void handlerStart(DWORD pid, uintptr_t base, std::vector<char> bc, size_t sz) {
         inst dm(0, pid);
+        auto last_print = std::chrono::steady_clock::now();
+        bool attachedOnce = false;
+        uintptr_t lastDmAddr = 0;
+
         while (true) {
-			dm = getDm(base, pid);
-            if (!stuff::inGame(base, pid))
-            {
-                // just utilies cuz why not
-                if (globals::lastDm.getAddr() == 0)
-                {
-                    std::cout << "not in game, waiting for datamodel" << std::endl;
-                }
-                else
-                {
-                    std::cout << "left game, waiting for datamodel" << std::endl;
-                }
+            dm = getDm(base, pid);
+            uintptr_t currentDmAddr = dm.getAddr();
+            bool currentlyInGame = stuff::inGame(base, pid);
+
+            if (currentDmAddr != lastDmAddr && currentDmAddr != 0 && currentDmAddr != 0xffffffffffffffff) {
                 gameAtd = false;
+                attachedOnce = false;
+                lastDmAddr = currentDmAddr;
             }
 
-            if (!gameAtd)
-            {
-				std::cout << "Attaching to process " << pid << std::endl;
-                if (dm.getName() == "Ugc")
-                {
-                    std::cout << "Datamodel found at " << std::hex << dm.getAddr() << std::endl;
-					std::thread(ugcAttachThread, pid, base, bc, sz).detach();
-                    globals::lastDm = dm;
-                }
-                else
-                {
-					std::cout << "Datamodel name: " << dm.getName() << std::endl;
-                    std::thread(attachThread, pid, base, bc, sz).detach();
-                }
-                gameAtd = true;
+            if (!currentlyInGame) {
+                gameAtd = false;
+                attachedOnce = false; 
             }
-            Sleep(500);
-		}
+
+            if (currentlyInGame && !gameAtd && !attachedOnce) {
+                std::string currentName = dm.getName();
+                
+                // CRITICAL FIX: Only attach if name is "Ugc" or "Game". 
+                // If it's "" or "None", the game is still strictly on the loading screen.
+                if (currentName == "Ugc" || currentName == "Game") {
+                    std::cout << " \033[1;36m[i]\033[0m Initializing Cravex for session: " << currentName << std::endl;
+                    
+                    if (currentName == "Ugc") {
+                        std::thread(ugcAttachThread, pid, base, bc, sz).detach();
+                    } else {
+                        std::thread(attachThread, pid, base, bc, sz).detach();
+                    }
+                    
+                    globals::lastDm = dm;
+                    gameAtd = true;
+                    attachedOnce = true;
+                }
+            }
+            Sleep(1000); 
+        }
     }
 }

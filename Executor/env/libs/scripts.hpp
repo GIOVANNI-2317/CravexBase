@@ -2,6 +2,7 @@
 #include <env/bridge.hpp>
 #include "../../core/inst.hpp"
 #include "../../core/code.hpp"
+#include "decompiler.hpp"
 
 namespace scripts {
 
@@ -36,14 +37,24 @@ namespace scripts {
 
         if (!bcPtr) return "null:no_bc_ptr:" + className;
 
-        // Bytecode string object is at bcPtr + 0x10
+        // Try reading as a string object first (offset 0x10 for MSVC std::string)
         uintptr_t strObj = bcPtr + 0x10;
-        size_t sz = mem::read<size_t>(strObj + 0x10, pid); // length at +0x10
-        size_t cap = mem::read<size_t>(strObj + 0x18, pid); // capacity at +0x18
+        size_t sz = mem::read<size_t>(strObj + 0x10, pid); 
+        size_t cap = mem::read<size_t>(strObj + 0x18, pid);
 
-        uintptr_t dataPtr = (cap > 15) ? mem::read<uintptr_t>(strObj, pid) : strObj;
+        uintptr_t dataPtr = 0;
 
-        if (!dataPtr || !sz) return "null:no_data_ptr:" + className;
+        // Validation: if sz or cap are unrealistically large or zero, it might not be a string object
+        if (sz > 0 && sz < 10000000 && cap >= sz && cap < 20000000) {
+            dataPtr = (cap > 15) ? mem::read<uintptr_t>(strObj, pid) : strObj;
+        } else {
+            // Fallback: It might be a direct pointer + size structure (Often seen in some Roblox versions)
+            // Some versions have Pointer at bcPtr + 0x0 and Size at bcPtr + 0x8
+            dataPtr = mem::read<uintptr_t>(bcPtr, pid);
+            sz = mem::read<size_t>(bcPtr + 0x8, pid);
+            
+            if (!dataPtr || sz == 0 || sz > 10000000) return "null:no_data_ptr:" + className;
+        }
 
         std::string buffer;
         buffer.resize(sz);
@@ -53,9 +64,28 @@ namespace scripts {
         return code::decompress(buffer);
     }
 
+    inline std::string handleDecompile(const std::string& data, const json& settings, DWORD pid) {
+        static decompiler::LuauDecompiler ldec;
+        return ldec.decompile(data, false);
+    }
+
+    inline std::string handleDisassemble(const std::string& data, const json& settings, DWORD pid) {
+        static decompiler::LuauDecompiler ldec;
+        return ldec.decompile(data, true);
+    }
+
+    inline std::string handleGetInitBytecode(const std::string& data, const json& settings, DWORD pid) {
+        std::string src = getResource(1, pid);
+        std::string bc = code::compile(src);
+        return util::base64_encode(bc);
+    }
+
     inline void init() {
         registerBridgeMethod("compile", handleCompile);
         registerBridgeMethod("setscriptbytecode", handleSetScriptBytecode);
         registerBridgeMethod("getscriptbytecode", handleGetScriptBytecode);
+        registerBridgeMethod("decompile", handleDecompile);
+        registerBridgeMethod("disassemble", handleDisassemble);
+        registerBridgeMethod("getinitbytecode", handleGetInitBytecode);
     }
 }

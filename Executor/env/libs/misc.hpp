@@ -45,7 +45,7 @@ namespace misc {
         }
         
         if (headers.find("User-Agent") == headers.end()) {
-            headers.insert({ "User-Agent", "CravexBase/0.1.1" });
+            headers.insert({ "User-Agent", "Cravex/0.1.1" });
         }
 
         httplib::Result res;

@@ -2,12 +2,14 @@ if _G._cravex_init then return {HideTemp = function() end} end
 
 
 local coreGui, httpSvc, players = game:GetService("CoreGui"), game:GetService("HttpService"), game:GetService("Players")
+local realType, realTypeof, realTostring = type, typeof, tostring
+local oldInstNew = Instance.new
 
 local safeWait = task and task.wait or wait
 local safeSpawn = task and task.spawn or function(f, ...) coroutine.wrap(f)(...) end
 local clockFunc = os and os.clock or tick
 
-local baseDir = Instance.new("Folder", coreGui); baseDir.Name = "CravexBase"
+local baseDir = Instance.new("Folder", coreGui); baseDir.Name = "Cravex"
 local pointDir = Instance.new("Folder", baseDir); pointDir.Name = "Pointer"
 
 local lvlBindthing = Instance.new("BindableEvent")
@@ -19,6 +21,117 @@ idPtr.Parent = pointDir
 
 local apiAddr = "http://localhost:6767"
 local procId = "-$-crvx-procid-$-"
+
+-- environment tables
+local pM = setmetatable({}, { __mode = "k" }) -- proxy map
+local oM = setmetatable({}, { __mode = "k" }) -- object map
+
+-- Proxy Service (pSv)
+local pObj -- forward declare
+
+local function toP(...)
+    local args = table.pack(...)
+    for i = 1, args.n do
+        local v = args[i]
+        if realTypeof(v) == "Instance" then
+            args[i] = oM[v] and oM[v].p or pObj(v)
+        end
+    end
+    return table.unpack(args, 1, args.n)
+end
+
+local function toO(...)
+    local args = table.pack(...)
+    for i = 1, args.n do
+        local v = args[i]
+        if realType(v) == "userdata" and pM[v] then
+            args[i] = pM[v].o
+        end
+    end
+    return table.unpack(args, 1, args.n)
+end
+
+local function genErr(obj)
+    local _, err = xpcall(function() obj:__namecall() end, function() return debug.info(2, "f") end)
+    return err
+end
+
+local tA, tB, mCache = genErr(OverlapParams.new()), genErr(Color3.new()), {}
+local function getnamecallmethod()
+    local _, e = pcall(tA)
+    local m = if type(e) == "string" then e:match("^(.+) is not a valid member of %w+$") else nil
+    if not m then
+        _, e = pcall(tB)
+        m = if type(e) == "string" then e:match("^(.+) is not a valid member of %w+$") else nil
+    end
+    if not m or m == "__namecall" then return mCache[coroutine.running()] end
+    mCache[coroutine.running()] = m
+    return m
+end
+
+local function idx(t, k)
+    local d = pM[t]
+    if not d then return t[k] end
+    local o, c = d.o, d.c
+    if c and c[k] then return c[k] end
+    local v = o[k]
+    if type(v) == "function" then
+        return function(self, ...)
+            return toP(v(toO(self, ...)))
+        end
+    end
+    return toP(v)
+end
+
+local function nc(t, ...)
+    local d = pM[t]
+    if not d then return t(...) end
+    local o, c = d.o, d.c
+    local m = getnamecallmethod()
+    if c and c[m] then return c[m](t, ...) end
+    local f = o[m]
+    return toP(f(toO(t, ...)))
+end
+
+local function ni(t, k, v)
+    local d = pM[t]
+    local o = d.o
+    o[k] = toO(v)
+end
+
+function pObj(o, c)
+    if not o or oM[o] then return oM[o] and oM[o].p or o end
+    local p = newproxy(true)
+    local m = getmetatable(p)
+    m.__index = idx
+    m.__namecall = nc
+    m.__newindex = ni
+    m.__tostring = function() return realTostring(o) end
+    m.__metatable = "The metatable is locked"
+    
+    local d = { o = o, p = p, c = c }
+    pM[p] = d
+    oM[o] = d
+    return p
+end
+
+local function clean(t)
+    if type(t) ~= "table" then
+        if type(t) == "userdata" and pM[t] then return clean(pM[t].o) end
+        if type(t) == "userdata" or type(t) == "table" or type(t) == "function" then
+            return tostring(t)
+        end
+        return t
+    end
+    local res = {}
+    for k, v in pairs(t) do
+        local nk = type(k) == "table" and tostring(k) or k
+        res[nk] = clean(v)
+    end
+    return res
+end
+
+
 
 local bridgeQueue = {}
 local bridgeResults = {}
@@ -52,15 +165,19 @@ end)
 
 local function bridgeReq(typ, data, settings)
     local reqId = httpSvc:GenerateGUID(false)
-    bridgeQueue[reqId] = {typ = typ, data = data, settings = settings}
+    bridgeQueue[reqId] = {typ = typ, data = data, settings = clean(settings or {})}
     while bridgeResults[reqId] == nil do safeWait() end
     local res = bridgeResults[reqId]
     bridgeResults[reqId] = nil
     return res
 end
 
-local env = getfenv(function() end)
+local env = getfenv(0)
+local cravex = {}
 env.getgenv = function() return env end
+cravex.assert = function(cond, msg) 
+    if not cond then error(msg, 2) end
+end
 
 local uiHolder = Instance.new("ScreenGui")
 uiHolder.Name = httpSvc:GenerateGUID(false)
@@ -170,56 +287,59 @@ env.compile = function(src, enc)
 end
 
 env.setscriptbytecode = function(scr, bc)
-    local val = Instance.new("ObjectValue", pointDir)
-    val.Name = httpSvc:GenerateGUID(false); val.Value = scr
+    assert(type(scr) == "userdata", "invalid argument #1 to 'setscriptbytecode' (Instance expected, got " .. typeof(scr) .. ")", 2)
+    assert(type(bc) == "string", "invalid argument #2 to 'setscriptbytecode' (string expected, got " .. type(bc) .. ")", 2)
+    local val = Instance.new("ObjectValue", toO(pointDir))
+    val.Name = httpSvc:GenerateGUID(false); val.Value = toO(scr)
     bridgeReq("setscriptbytecode", bc, {cn = val.Name})
     val:Destroy()
 end
 
 env.getscriptbytecode = function(scr)
-    local val = Instance.new("ObjectValue", pointDir)
-    val.Name = httpSvc:GenerateGUID(false); val.Value = scr
+    assert(type(scr) == "userdata", "invalid argument #1 to 'getscriptbytecode' (Instance expected, got " .. typeof(scr) .. ")", 2)
+    local val = Instance.new("ObjectValue", toO(pointDir))
+    val.Name = httpSvc:GenerateGUID(false); val.Value = toO(scr)
     local bc = bridgeReq("getscriptbytecode", "", {cn = val.Name})
     val:Destroy()
-    if bc:sub(1, 5) == "null:" then
-        warn("[Cravex] getscriptbytecode failed: " .. bc:sub(6))
-        return nil
-    elseif bc == "null" or bc == "" then
-        return nil
+    if bc:sub(1, 4) == "null" or bc == "" then
+        error(bc:sub(6) or "Script contains no bytecode (uncompiled)", 2)
     end
     return bc
 end
 
-env.getnilinstances = function()
-    local cached = env.getinstances()
-    local res = {}
-    for i = 1, #cached do
-        local obj = cached[i]
-        if not obj.Parent then
-            table.insert(res, obj)
-        end
-    end
-    return res
+env.getinitbytecode = function()
+    return bridgeReq("getinitbytecode")
 end
 
+
 env.getscripts = function()
-    local res = {}
-    local cg = game:GetService("CoreGui")
-    local cp = game:GetService("CorePackages")
-    for _, s in ipairs(env.getinstances()) do
-        if (s:IsA("LocalScript") or s:IsA("ModuleScript") or s:IsA("Script")) and not s:IsA("CoreScript") then
-            if not s:IsDescendantOf(cg) and not s:IsDescendantOf(cp) then
-                table.insert(res, s)
+	local res = {}
+    local cg, cp = game:GetService("CoreGui"), game:GetService("CorePackages")
+	for i, v in pairs(oM) do
+        local scr = v.p
+		if scr:IsA("LocalScript") or scr:IsA("ModuleScript") or scr:IsA("Script") then
+			local p = scr.Parent
+            local is_c = false
+            while p do
+                if p == cg or p == cp then
+                    is_c = true
+                    break
+                end
+                p = p.Parent
             end
-        end
-    end
-    return res
+            if not is_c then
+                table.insert(res, scr)
+            end
+		end
+	end
+	return res
 end
 
 local scriptTarget = coreGui:FindFirstChild("RobloxGui").Modules.Common:FindFirstChild("Constants") or coreGui:FindFirstChild("RobloxGui").Modules.Common:FindFirstChild("CommonUtil")
 env.loadstring = function(src, chunk)
-    if type(src) ~= "string" then return nil, "Expected string" end
+    assert(type(src) == "string", "invalid argument #1 to 'loadstring' (string expected, got " .. type(src) .. ")", 2)
     chunk = chunk or "loadstring"
+    assert(type(chunk) == "string", "invalid argument #2 to 'loadstring' (string expected, got " .. type(chunk) .. ")", 2)
 
     local bc = env.compile("return function(...) " .. src .. "\nend", true)
     if type(bc) ~= "string" or #bc < 1 then 
@@ -250,6 +370,7 @@ env.loadstring = function(src, chunk)
 end
 
 env.getscriptclosure = function(scr)
+    assert(type(scr) == "userdata", "invalid argument #1 to 'getscriptclosure' (Instance expected, got " .. typeof(scr) .. ")", 2)
     local bc = env.getscriptbytecode(scr)
     if not bc then return nil end
     local func, err = env.loadstring(bc)
@@ -257,6 +378,7 @@ env.getscriptclosure = function(scr)
 end
 
 env.getscripthash = function(scr)
+    assert(type(scr) == "userdata", "invalid argument #1 to 'getscripthash' (Instance expected, got " .. typeof(scr) .. ")", 2)
     local bc = env.getscriptbytecode(scr)
     if not bc then return nil end
     return typeof(env.crypt) == "table" and type(env.crypt.hash) == "function" and env.crypt.hash(bc, "sha384") or "mock_hash"
@@ -268,21 +390,60 @@ env.getreg = function() return debug.getregistry() end -- not working btw
 _G.loadstring = env.loadstring
 getfenv(0).loadstring = env.loadstring
 
-env.getinstances = function()
-    local insts = {}
-    local reg = env.getreg()
-    for _, v in pairs(reg) do
-        if typeof(v) == "Instance" then
-            table.insert(insts, v)
-        end
+task.spawn(function() 
+    game.DescendantAdded:Connect(pObj)
+    for _, v in ipairs(game:GetDescendants()) do
+        pObj(v)
     end
-    return insts
+end)
+
+env.getinstances = function()
+	local insts = {}
+	for i, v in pairs(oM) do
+		table.insert(insts, v.p)
+	end
+	return insts
 end
 
+env.getnilinstances = function()
+	local nils = {}
+	for i, v in pairs(oM) do
+		if v.p.Parent == nil then
+			table.insert(nils, v.p)
+		end
+	end
+	return nils
+end
 
+-- signals
+local function createSignal()
+	local handlers = {}
+	local signal = {}
+	function signal:Connect(handler)
+		table.insert(handlers, handler)
+		return {
+			Disconnect = function()
+				for i, h in ipairs(handlers) do
+					if h == handler then
+						table.remove(handlers, i)
+						break
+					end
+				end
+			end
+		}
+	end
+	function signal:Fire(...)
+		for _, h in ipairs(handlers) do
+			safeSpawn(h, ...)
+		end
+	end
+	return signal
+end
 
 -- Request & Crypt
 env.request = function(options)
+    assert(type(options) == "table", "invalid argument #1 to 'request' (table expected, got " .. type(options) .. ")", 2)
+    assert(type(options.Url) == "string", "invalid option 'Url' for argument #1 to 'request' (string expected, got " .. type(options.Url) .. ")", 2)
     local response = bridgeReq("request", "", options)
     if response == "" or response == "{}" then return {Success = false, StatusCode = 500, Body = "", Headers = {}} end
     local decoded = httpSvc:JSONDecode(response)
@@ -335,10 +496,9 @@ end
 env.lz4compress = env.crypt.lz4compress
 env.lz4decompress = env.crypt.lz4decompress
 
-env.HttpGet = function(...)
-    local args = {...}
-    local url = type(args[1]) == "string" and args[1] or args[2]
-    if type(url) ~= "string" then return "" end
+env.HttpGet = function(url, returnRaw)
+    assert(type(url) == "string", "invalid argument #1 to 'HttpGet' (string expected, got " .. type(url) .. ")", 2)
+    local returnRaw = returnRaw or true
     local resp = env.request({Url = url})
     if not resp.Success then
         warn("[Cravex] HttpGet failed for " .. url .. ": " .. tostring(resp.Body))
@@ -346,69 +506,61 @@ env.HttpGet = function(...)
     end
     return resp.Body or ""
 end
-env.HttpPost = function(...)
-    local args = {...}
-    local url = type(args[1]) == "string" and args[1] or args[2]
-    local body = type(args[1]) == "string" and args[2] or args[3]
-    if type(url) ~= "string" then return "" end
-    local resp = env.request({Url = url, Method = "POST", Body = type(body) == "string" and body or ""})
+env.HttpPost = function(url, body, contentType)
+    assert(type(url) == "string", "invalid argument #1 to 'HttpPost' (string expected, got " .. type(url) .. ")", 2)
+    contentType = contentType or "application/json"
+    assert(type(contentType) == "string", "invalid argument #3 to 'HttpPost' (string expected, got " .. type(contentType) .. ")", 2)
+    local resp = env.request({
+        Url = url,
+        Method = "POST",
+        Body = type(body) == "string" and body or tostring(body),
+        Headers = { ["Content-Type"] = contentType }
+    })
     return resp and resp.Body or ""
 end
 
 env.GetObjects = function(asset)
+    assert(type(asset) == "string", "invalid argument #1 to 'GetObjects' (string expected, got " .. type(asset) .. ")", 2)
     return { game:GetService("InsertService"):LoadLocalAsset(asset) }
 end
 
--- game proxy
-local realGame = game
-env.game = newproxy(true)
-local gameMeta = getmetatable(env.game)
-
-local function getReal(v) return v == env.game and realGame or v end
-
-gameMeta.__index = function(self, key)
-    if key == "HttpGet" or key == "HttpGetAsync" then return function(_, ...) return env.HttpGet(...) end end
-    if key == "HttpPost" or key == "HttpPostAsync" then return function(_, ...) return env.HttpPost(...) end end
-    
-    if key == "GetService" or key == "getService" or key == "service" or key == "FindService" or key == "findService" then
-        return function(_, serviceName)
-            local s = realGame:GetService(serviceName)
-            if s == realGame then return env.game end
-            return s
-        end
-    end
-
-    local val = realGame[key]
-    if type(val) == "function" then
-        return function(s, ...)
-            return val(getReal(s), ...)
-        end
-    end
-    return val
-end
-
-gameMeta.__newindex = function(_, k, v) realGame[k] = v end
-gameMeta.__tostring = function() return "game" end
-gameMeta.__metatable = "The metatable is locked"
-
 -- hooks
-local oldInstanceNew = Instance.new
+env.game = pObj(game, {
+    HttpGet = function(_, url) return env.HttpGet(url) end,
+    HttpGetAsync = function(_, url) return env.HttpGet(url) end,
+    HttpPost = function(_, url, data, type) return env.HttpPost(url, data, type) end,
+    HttpPostAsync = function(_, url, data, type) return env.HttpPost(url, data, type) end,
+    GetObjects = function(_, asset) return env.GetObjects(asset) end,
+    GetService = function(s, name)
+        local raw = toO(s):GetService(name)
+        return toP(raw)
+    end,
+    getService = function(s, name) return toP(toO(s):GetService(name)) end,
+    service = function(s, name) return toP(toO(s):GetService(name)) end,
+    FindService = function(s, name) return toP(toO(s):FindService(name)) end,
+    findService = function(s, name) return toP(toO(s):FindService(name)) end,
+})
+env.Game = env.game
+env.workspace = pObj(workspace)
+env.Workspace = env.workspace
+env.script = pObj(script)
+
 env.Instance = {
     new = function(cls, parent)
-        return oldInstanceNew(cls, getReal(parent))
+        return toP(oldInstNew(cls, toO(parent)))
     end
 }
 
-local oldTypeof = typeof
 env.typeof = function(obj)
-    if obj == env.game then return "Instance" end
-    return oldTypeof(obj)
+    return realTypeof(toO(obj))
 end
 
-local oldType = type
 env.type = function(obj)
-    if obj == env.game then return "userdata" end
-    return oldType(obj)
+    return realType(toO(obj))
+end
+
+env.rawequal = function(a, b)
+    return toO(a) == toO(b)
 end
 
 -- filesystem
@@ -488,7 +640,9 @@ env.debug.info = function(f, ...)
     return unpack(res)
 end
 
-env.checkcaller = function() return true end
+env.checkcaller = function()
+    return debug.info(1, 'slnaf') == debug.info(env.getgenv, 'slnaf')
+end
 env.iscclosure = function(f) return env.debug.info(f, "s") == "[C]" or env.debug.info(f, "s") == "=[C]" end
 env.islclosure = function(f) return not env.iscclosure(f) end
 env.isexecutorclosure = function(f) return true end
@@ -504,6 +658,28 @@ env.clonefunction = function(f)
     if env.iscclosure(f) then return env.newcclosure(f) end
     return env.newlclosure(f)
 end
+
+env.cloneref = function(inst)
+    assert(type(inst) == "userdata", "invalid argument #1 to 'cloneref' (Instance expected, got " .. typeof(inst) .. ")", 2)
+    local proxy = newproxy(true)
+    local proxyMt = getmetatable(proxy)
+    
+    proxyMt.__index = function(_, key)
+        local value = inst[key]
+        if type(value) == "function" then
+            return function(_, ...) return value(inst, ...) end
+        end
+        return value
+    end
+
+    proxyMt.__newindex = function(_, key, value) inst[key] = value end
+    proxyMt.__tostring = function() return inst.Name end
+    proxyMt.__type = "Instance"
+    proxyMt.__metatable = "The metatable is locked"
+
+    return proxy
+end
+
 env.hookfunction = function(f, h) return f end
 env.getscriptclosure = function(s) return function() return require(s) end end
 env.getscriptfunction = env.getscriptclosure
@@ -644,9 +820,10 @@ local function updateDrawing(obj)
 end
 
 env.Drawing = {
-    new = function(type)
+    new = function(drawType)
+        assert(type(drawType) == "string", "arg #1 must be type string", 2)
         local obj = {
-            __type = "Drawing", Type = type,
+            __type = "Drawing", Type = drawType,
             Visible = false, ZIndex = 0, Transparency = 0, Color = Color3.new(1,1,1),
             __OBJECT_EXISTS = true,
             Remove = function(self)
@@ -658,14 +835,14 @@ env.Drawing = {
             Destroy = function(self) self:Remove() end
         }
         
-        if type == "Line" then
+        if drawType == "Line" then
             obj.Thickness = 1
             obj.From = Vector2.new()
             obj.To = Vector2.new()
             obj.Instance = Instance.new("Frame")
             obj.Instance.AnchorPoint = Vector2.new(0.5, 0.5)
             obj.Instance.BorderSizePixel = 0
-        elseif type == "Text" then
+        elseif drawType == "Text" then
             obj.Text = ""
             obj.Size = 16
             obj.Center = false
@@ -676,7 +853,7 @@ env.Drawing = {
             obj.Instance = Instance.new("TextLabel")
             obj.Instance.BackgroundTransparency = 1
             obj.Instance.Font = Enum.Font.Code
-        elseif type == "Circle" then
+        elseif drawType == "Circle" then
             obj.Thickness = 1
             obj.NumSides = 0
             obj.Radius = 0
@@ -685,14 +862,14 @@ env.Drawing = {
             obj.Instance = Instance.new("Frame")
             obj.Instance.BorderSizePixel = 0
             Instance.new("UICorner", obj.Instance).CornerRadius = UDim.new(1, 0)
-        elseif type == "Square" then
+        elseif drawType == "Square" then
             obj.Thickness = 1
             obj.Size = Vector2.new()
             obj.Position = Vector2.new()
             obj.Filled = false
             obj.Instance = Instance.new("Frame")
             obj.Instance.BorderSizePixel = 0
-        elseif type == "Quad" then
+        elseif drawType == "Quad" then
             obj.Thickness = 1
             obj.PointA = Vector2.new()
             obj.PointB = Vector2.new()
@@ -701,7 +878,7 @@ env.Drawing = {
             obj.Filled = false
             obj.Instance = Instance.new("Frame")
             obj.Instance.BackgroundTransparency = 1
-        elseif type == "Triangle" then
+        elseif drawType == "Triangle" then
             obj.Thickness = 1
             obj.PointA = Vector2.new()
             obj.PointB = Vector2.new()
@@ -709,7 +886,7 @@ env.Drawing = {
             obj.Filled = false
             obj.Instance = Instance.new("Frame")
             obj.Instance.BackgroundTransparency = 1
-        elseif type == "Image" then
+        elseif drawType == "Image" then
             obj.Data = ""
             obj.Size = Vector2.new()
             obj.Position = Vector2.new()
@@ -720,13 +897,13 @@ env.Drawing = {
             error("Invalid Drawing type")
         end
         
-        obj.Instance.Parent = drawingUI
+        obj.Instance.Parent = toO(drawingUI)
         drawings[obj] = true
         
         local proxy = newproxy(true)
         local meta = getmetatable(proxy)
         meta.__index = function(_, k) 
-            if k == "TextBounds" and type == "Text" then
+            if k == "TextBounds" and drawType == "Text" then
                 return obj.Instance.TextBounds
             end
             if k == "__OBJECT_EXISTS" then
@@ -746,96 +923,46 @@ env.Drawing = {
     Font = { UI = 0, System = 1, Plex = 2, Monospace = 3 }
 }
 
-local pMap = setmetatable({}, { __mode = "k" })
-
-env.cloneref = function(obj)
-    if typeof(obj) ~= "Instance" then return obj end
-    
-    local proxy = newproxy(true)
-    local m = getmetatable(proxy)
-    
-    m.__index = function(_, k)
-        local val = obj[k]
-        if type(val) == "function" then
-            return function(s, ...)
-                return val(s == proxy and obj or s, ...)
-            end
-        end
-        return val
-    end
-    
-    m.__namecall = function(_, ...)
-        local method = env.getnamecallmethod()
-        return obj[method](obj, ...)
-    end
-    
-    m.__newindex = function(_, k, v)
-        obj[k] = v
-    end
-    
-    m.__tostring = function()
-        return tostring(obj)
-    end
-    
-    m.__metatable = "The metatable is locked"
-    
-    pMap[proxy] = obj
-    return proxy
-end
-
 env.compareinstances = function(p1, p2)
-    local r1 = pMap[p1] or p1
-    local r2 = pMap[p2] or p2
-    return r1 == r2 
+    assert(type(p1) == "userdata", "invalid argument #1 to 'compareinstances' (Instance expected, got " .. typeof(p1) .. ")", 2)
+    assert(type(p2) == "userdata", "invalid argument #2 to 'compareinstances' (Instance expected, got " .. typeof(p2) .. ")", 2)
+    return toO(p1) == toO(p2)
 end
 
 -- clipboard
-env.setclipboard = function(data) bridgeReq("setclipboard", tostring(data)) end
+env.setclipboard = function(data) 
+    assert(type(data) == "string", "invalid argument #1 to 'setclipboard' (string expected, got " .. type(data) .. ")", 2)
+    bridgeReq("setclipboard", tostring(data)) 
+end
 env.toclipboard = env.setclipboard
+
 env.getclipboard = function() return bridgeReq("getclipboard") end
 
--- decompile // uses konstant decompiler for this
-local API: string = "http://api.plusgiant5.com"
+-- decompile // ashore.rip API
+local ASHORE_API = "https://decompiler.ashore.rip/"
 
-local last_call = 0
-local function call(konstantType: string, scriptPath: Script | ModuleScript | LocalScript): string
-    local success: boolean, bytecode: string = pcall(getscriptbytecode, scriptPath)
-
-    if (not success) then
-        return `-- Failed to get script bytecode, error:\n\n--[[\n{bytecode}\n--]]`
-    end
-
-    local time_elapsed = os.clock() - last_call
-    if time_elapsed <= .5 then
-        task.wait(.5 - time_elapsed)
-    end
-    local httpResult = request({
-        Url = API .. konstantType,
-        Body = bytecode,
-        Method = "POST",
-        Headers = {
-            ["Content-Type"] = "text/plain"
-        },
-    })
-    last_call = os.clock()
+env.decompile = function(scr)
+    assert(type(scr) == "userdata", "invalid argument #1 to 'decompile' (Instance expected, got " .. typeof(scr) .. ")", 2)
+    local bc = env.getscriptbytecode(scr)
     
-    if (httpResult.StatusCode ~= 200) then
-        return `-- Error occured while requesting the API, error:\n\n--[[\n{httpResult.Body}\n--]]`
-    else
-        return httpResult.Body
-    end
+    local Output = env.request({
+        Url = ASHORE_API .. "decompile";
+        Method = "POST";
+        Body = bc;
+    });
+    
+    if Output.StatusCode == 200 then
+        return Output.Body;
+    end;
+
+    return "-- Failed to decompile bytecode\n" .. (Output.Body or tostring(Output.StatusCode))
 end
 
-local function decompile(scriptPath: Script | ModuleScript | LocalScript): string
-    return call("/konstant/decompile", scriptPath)
+env.disassemble = function(scr)
+    assert(type(scr) == "userdata", "invalid argument #1 to 'disassemble' (Instance expected, got " .. typeof(scr) .. ")", 2)
+    local bc = env.getscriptbytecode(scr)
+    return bridgeReq("disassemble", bc) -- Disassemble stays native for speed
 end
-
-local function disassemble(scriptPath: Script | ModuleScript | LocalScript): string
-    return call("/konstant/disassemble", scriptPath)
-end
-
-env.decompile = decompile
-env.disassemble = disassemble
 
 -- listener loop
 bridgeReq("listen")
@@ -862,12 +989,230 @@ safeSpawn(function()
     end
 end)
 
+local fx = {
+    collectgarbage = collectgarbage,
+    printidentity = printidentity,
+    elapsedTime = elapsedTime,
+    version = version,
+    table = {
+        getn = table.getn or function(t) return #t end,
+        foreachi = table.foreachi or function(t, f) for i, v in ipairs(t) do f(i, v) end end,
+        foreach = table.foreach or function(t, f) for k, v in pairs(t) do f(k, v) end end,
+    }
+}
+
+local renv = {
+    _VERSION = _VERSION,
+    UserSettings = UserSettings,
+    assert = assert,
+    bit32 = {
+        arshift = bit32.arshift, band = bit32.band, bnot = bit32.bnot, bor = bit32.bor, btest = bit32.btest,
+        extract = bit32.extract, lshift = bit32.lshift, replace = bit32.replace, rshift = bit32.rshift, xor = bit32.xor,
+    },
+    collectgarbage = fx.collectgarbage,
+    coroutine = {
+        create = coroutine.create, resume = coroutine.resume, running = coroutine.running,
+        status = coroutine.status, wrap = coroutine.wrap, yield = coroutine.yield, isyieldable = coroutine.isyieldable,
+    },
+    debug = {
+        traceback = debug.traceback, profilebegin = debug.profilebegin, profileend = debug.profileend, info = debug.info, dumpcodesize = debug.dumpcodesize, getmemorycategory = debug.getmemorycategory, setmemorycategory = debug.setmemorycategory,
+    },
+    delay = delay,
+    elapsedTime = fx.elapsedTime,
+    error = error,
+    gcinfo = gcinfo,
+    getfenv = getfenv,
+    ipairs = ipairs,
+    math = {
+        abs = math.abs, acos = math.acos, asin = math.asin, atan = math.atan, atan2 = math.atan2, ceil = math.ceil,
+        cos = math.cos, cosh = math.cosh, deg = math.deg, exp = math.exp, floor = math.floor, fmod = math.fmod,
+        frexp = math.frexp, ldexp = math.ldexp, log = math.log, log10 = math.log10, max = math.max, min = math.min,
+        modf = math.modf, pow = math.pow, rad = math.rad, random = math.random, randomseed = math.randomseed,
+        sin = math.sin, sinh = math.sinh, sqrt = math.sqrt, tan = math.tan, tanh = math.tanh, pi = math.pi,
+    },
+    next = next,
+    newproxy = newproxy,
+    os = {
+        clock = os.clock, date = os.date, difftime = os.difftime, time = os.time,
+    },
+    pairs = pairs,
+    print = print,
+    printidentity = fx.printidentity,
+    rawequal = rawequal,
+    rawget = rawget,
+    rawlen = rawlen,
+    rawset = rawset,
+    select = select,
+    setfenv = setfenv,
+    spawn = spawn,
+    string = {
+        byte = string.byte, char = string.char, find = string.find, format = string.format, gmatch = string.gmatch,
+        gsub = string.gsub, len = string.len, lower = string.lower, match = string.match, pack = string.pack,
+        packsize = string.packsize, rep = string.rep, reverse = string.reverse, sub = string.sub,
+        unpack = string.unpack, upper = string.upper,
+    },
+    table = {
+        getn = fx.table.getn, foreachi = fx.table.foreachi, foreach = fx.table.foreach, sort = table.sort, unpack = table.unpack, freeze = table.freeze, clear = table.clear, pack = table.pack, move = table.move, insert = table.insert, create = table.create, maxn = table.maxn, isfrozen = table.isfrozen, concat = table.concat, clone = table.clone, find = table.find, remove = table.remove,
+    },
+    task = {
+        defer = task.defer, delay = task.delay, spawn = task.spawn, wait = task.wait,
+    },
+    tick = tick,
+    time = time,
+    tonumber = tonumber,
+    tostring = tostring,
+    type = type,
+    utf8 = {
+        char = utf8.char, charpattern = utf8.charpattern, codepoint = utf8.codepoint, codes = utf8.codes,
+        len = utf8.len, nfdnormalize = utf8.nfdnormalize, nfcnormalize = utf8.nfcnormalize,
+    },
+    version = fx.version,
+    wait = wait,
+    xpcall = xpcall,
+}
+
+env.setreadonly = function(t, ro)
+    assert(type(t) == "table", "invalid argument #1 to 'setreadonly' (table expected, got " .. type(t) .. ")", 2)
+    local meta = getmetatable(t) or {}
+    if ro then
+        meta.__newindex = function(_, k) error("Attempt to modify a read-only table", 2) end
+    else
+        meta.__newindex = nil
+    end
+    setmetatable(t, meta)
+end
+env.make_readonly = env.setreadonly
+
+env.isourclosure = function(func)
+    assert(typeof(func) == "function", "Invalid argument #1 to 'isourclosure' (Function expected, got " .. typeof(func) .. ")", 2)
+    local our = true
+    local function checktable(t)
+        for i, v in pairs(t) do
+            if not our then return end
+            if v == func then
+                our = false
+                return
+            elseif typeof(v) == "table" then
+                checktable(v)
+            end
+        end
+    end
+    checktable(renv)
+    return our
+end
+env.isexecutorclosure = env.isourclosure
+env.checkclosure = env.isourclosure
+
+env.getrenv = function()
+    local t = table.clone(renv)
+    t.table = env.table
+    t.typeof = env.typeof
+    t.game = env.game
+    t.Game = env.Game
+    t.script = env.script
+    t.workspace = env.workspace
+    t.Workspace = env.Workspace
+    t.getmetatable = env.getmetatable
+    t.setmetatable = env.setmetatable
+    t.require = env.require
+    t._G = table.clone(env._G)
+    env.setreadonly(t, true)
+    return t
+end
+
+env.WebSocket = {
+	connect = function(url)
+		assert(type(url) == "string", "invalid argument #1 to 'connect' (string expected, got " .. type(url) .. ")", 2)
+		local handle = bridgeReq("websocket_connect", "", {url = url})
+		if handle:sub(1, 6) == "Error:" then error(handle, 2) end
+		
+		local ws = {
+			OnMessage = createSignal(),
+			OnClose = createSignal()
+		}
+		
+		function ws:Send(msg)
+			assert(type(msg) == "string", "invalid argument #1 to 'Send' (string expected, got " .. type(msg) .. ")", 2)
+			bridgeReq("websocket_send", msg, {h = handle})
+		end
+		
+		function ws:Close()
+			bridgeReq("websocket_close", "", {h = handle})
+		end
+		
+		safeSpawn(function()
+			while true do
+				local poll = bridgeReq("websocket_poll", "", {h = handle})
+				if poll == "" then break end
+				local data = httpSvc:JSONDecode(poll)
+				if data.messages then
+					for _, msg in ipairs(data.messages) do
+						ws.OnMessage:Fire(msg)
+					end
+				end
+				if data.closed then
+					ws.OnClose:Fire()
+					break
+				end
+				safeWait(0.1)
+			end
+		end)
+		
+		return ws
+	end
+}
+getgenv().WebSocket = env.WebSocket
+
+local b64chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+env.base64_encode = function(data)
+    assert(type(data) == "string", "invalid argument #1 to 'base64_encode' (string expected, got " .. typeof(data) .. ")", 2)
+    return ((data:gsub('.', function(x) 
+        local r,b='',x:byte()
+        for i=8,1,-1 do r=r..(b%2^i-b%2^(i-1)>0 and '1' or '0') end
+        return r;
+    end)..'0000'):gsub('%d%d%d?%d?%d?%d?', function(x)
+        if (#x < 6) then return '' end
+        local c=0
+        for i=1,6 do c=c+(x:sub(i,i)=='1' and 2^(6-i) or 0) end
+        return b64chars:sub(c+1,c+1)
+    end)..({ '', '==', '=' })[#data%3+1])
+end
+env.base64encode = env.base64_encode
+
+env.base64_decode = function(data)
+    assert(type(data) == "string", "invalid argument #1 to 'base64_decode' (string expected, got " .. typeof(data) .. ")", 2)
+    data = string.gsub(data, '[^'..b64chars..'=]', '')
+    return (data:gsub('.', function(x)
+        if (x == '=') then return '' end
+        local r,f='',(b64chars:find(x)-1)
+        for i=6,1,-1 do r=r..(f%2^i-f%2^(i-1)>0 and '1' or '0') end
+        return r;
+    end):gsub('%d%d%d?%d?%d?%d?%d?%d?', function(x)
+        if (#x ~= 8) then return '' end
+        local c=0
+        for i=1,8 do c=c+(x:sub(i,i)=='1' and 2^(8-i) or 0) end
+        return string.char(c)
+    end))
+end
+env.base64decode = env.base64_decode
+
+env.crypt = env.crypt or {}
+env.crypt.base64encode = env.base64_encode
+env.crypt.base64decode = env.base64_decode
+env.crypt.base64_encode = env.base64_encode
+env.crypt.base64_decode = env.base64_decode
+
+env.printinfo = function(msg) -- random add
+    msg = type(msg) == "string" and msg or tostring(msg)
+    bridgeReq("printinfo", msg) 
+end
+
 print("Ready.")
 _G._cravex_init = true
 
 pcall(function()
     game:GetService("StarterGui"):SetCore("SendNotification", {
-        Title = "Cravex Base",
+        Title = "Cravex",
         Text = "Successfully Attached to Roblox!",
         Duration = 5
     })

@@ -56,7 +56,7 @@ namespace ws {
         std::string host = (portPos == std::string::npos) ? hostPort : hostPort.substr(0, portPos);
         int port = (portPos == std::string::npos) ? (isSecure ? INTERNET_DEFAULT_HTTPS_PORT : INTERNET_DEFAULT_HTTP_PORT) : std::stoi(hostPort.substr(portPos + 1));
 
-        client->hSession = WinHttpOpen(L"CravexBase/0.1.1", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+        client->hSession = WinHttpOpen(L"Cravex/0.1.1", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
         if (!client->hSession) return "Error: WinHttpOpen failed (" + std::to_string(GetLastError()) + ")";
 
         std::wstring wHost(host.begin(), host.end());

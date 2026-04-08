@@ -2,12 +2,12 @@
 #include <Windows.h>
 
 namespace offs {
-    inline constexpr uintptr_t loadModule = 0x7B61808;
+    inline constexpr uintptr_t loadModule = 0x7CD0BA8;
 
-    inline constexpr uintptr_t fakeDataModelPtr = 0x81D3EA8;
+    inline constexpr uintptr_t fakeDataModelPtr = 0x834A988;
     inline constexpr uintptr_t fakeDataModelToDataModel = 0x1C0;
 
-    inline constexpr uintptr_t children = 0x70;
+    inline constexpr uintptr_t children = 0x78;
     inline constexpr uintptr_t childrenEnd = 0x8;
     inline constexpr uintptr_t name = 0xB0;
     inline constexpr uintptr_t value = 0xD0;
@@ -17,4 +17,5 @@ namespace offs {
 
     inline constexpr uintptr_t lscriptBc = 0x1A8;
     inline constexpr uintptr_t mscriptBc = 0x150;
+    inline constexpr uintptr_t iscoreScript = 0x180; // will need for future updates maybe, but not yet
 }
